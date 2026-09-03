@@ -2,7 +2,7 @@
 
 **Train like an analyst. Think like an investor. Decide like a partner.**
 
-Capital Forge is an institutional finance training platform for PE, IB, VC, private credit, public markets, financial modeling, interviews and investment judgment.
+Capital Forge is an institutional AI finance training platform for PE, IB, VC, private credit, public markets, financial modeling, interviews, live-market judgment and recruiter-ready project sharpening.
 
 ## Live app
 
@@ -12,35 +12,85 @@ Production alias:
 https://capital-forge-deeps3.vercel.app
 ```
 
-## Phase 1 shipped
+## Shipped layers
 
-- Complete responsive Next.js application, not a static landing page
-- Institutional dark finance UI
-- Dashboard with Finance Rating, XP, streak, skill heatmap, weakest concepts and role readiness
-- Practice engine with filters, hints, confidence scoring, bookmarks and local grading
+### Phase 1
+
+- Responsive Next.js application with institutional dark finance UI
+- Dashboard, practice engine, formula vault, Excel vault, interview room, deal simulator, IC mode, journals and admin import
 - 1,620 generated practice exercises across 20 finance categories
 - MCQ, numerical, formula, direct recall, interview, model-review and judgment formats
-- Formula Vault and Excel Shortcut Vault
-- Interview Room, Deal Simulator, IC Mode, Mistake Journal, Investment Journal and Admin import panel
-- Vercel-ready config and GitHub Actions CI
 
-## Phase 2 shipped
+### Phase 2
 
-- Supabase client integration using `@supabase/supabase-js`
+- Supabase client integration
 - Email/password sign-in and account creation UI
 - Cloud-load and cloud-save logic for user progress
 - Local fallback when Supabase env vars are missing
-- RLS-secured schema for profiles, state, attempts, bookmarks and question imports
+- RLS-secured schema for profiles, state, attempts, bookmarks and imports
 
-## Phase 3 shipped
+### Phase 3
 
-- AI Coach tab for IC-style answer review
+- AI Coach tab
 - `/api/coach` endpoint with OpenAI-compatible provider support and local fallback
-- Live Markets tab for market-driven training prompts
-- `/api/market` endpoint with source-safe demo mode when no market provider is configured
-- Backup/export workflow for progress data
-- Extended Supabase schema for AI coach reviews, market challenges and learning exports
-- Production-readiness checklist for Vercel env vars and database activation
+- Live Markets tab
+- `/api/market` endpoint with source-safe demo mode
+- `/api/health` endpoint for deployment checks
+
+### World-Class AI Layer
+
+All 25 advanced modules are now represented inside the app and routed through `/api/lab` with safe demo fallback:
+
+1. Recruiter Mode
+2. MD Pressure Room
+3. Deal Teardown Library
+4. Excel Muscle Memory
+5. Financial Model Error Hunter
+6. IC Memo Builder
+7. Would You Invest Game
+8. Live News Question Engine
+9. Personal Weakness Graph
+10. Interview Bank by Firm
+11. Deal Math Speed Trainer
+12. Investment Journal AI
+13. Pitchbook Simulator
+14. LBO Paper Test
+15. Private Credit Underwriting
+16. Founder Call Simulator
+17. Red Flag Detector
+18. Cap Table & Dilution Simulator
+19. Career Path Engine
+20. Portfolio Project Tracker
+21. Real Filing Reader
+22. AI Mentor Personas
+23. Bad Answer Rewriter
+24. Case Competition Mode
+25. Daily Killer Insight
+
+## API key slots
+
+Add these in Vercel Project Settings → Environment Variables:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+AI_API_URL=https://api.openai.com/v1
+AI_API_KEY=
+AI_MODEL=gpt-4.1-mini
+MARKET_DATA_API_URL=
+MARKET_DATA_API_KEY=
+NEWS_API_URL=
+NEWS_API_KEY=
+FILINGS_API_URL=
+FILINGS_API_KEY=
+RESUME_REVIEW_API_URL=
+RESUME_REVIEW_API_KEY=
+CAPITAL_FORGE_ADMIN_SECRET=
+```
+
+## Safe mode
+
+If keys are missing, Capital Forge does not fake live AI, market, news or filing output. It clearly runs deterministic safe-demo feedback and source-safe simulations.
 
 ## Run locally
 
@@ -50,53 +100,12 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open `http://localhost:3000`.
-
-## Validate content
+## Validate
 
 ```bash
-npm run validate:content
+npm run ci:check
 ```
-
-Expected result:
-
-```bash
-Capital Forge content OK: 20 categories / 1620 questions.
-```
-
-## Environment variables
-
-Demo mode works without environment variables. Add these when activating cloud features:
-
-```text
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
-AI_API_URL=
-AI_API_KEY=
-AI_MODEL=
-MARKET_DATA_API_URL=
-MARKET_DATA_API_KEY=
-```
-
-Never expose `SUPABASE_SERVICE_ROLE_KEY` to the browser.
 
 ## Supabase activation
 
-Recommended: create a fresh Supabase project named `capital-forge`. Then run:
-
-```sql
--- contents of supabase/schema.sql
-```
-
-After running the schema, add the publishable Supabase URL/key to Vercel and redeploy. The app will then move from local browser storage to cloud persistence after sign-in.
-
-## Current architecture
-
-The project intentionally keeps Phase 3 as a safe hybrid:
-
-- Without keys: complete local demo mode
-- With Supabase keys and schema: cloud auth + progress persistence
-- With AI provider keys: real AI coaching
-- With market provider keys: live market challenge feed
-
-This keeps the app live and usable while advanced integrations are attached progressively.
+Create a dedicated Supabase project named `capital-forge`, run `supabase/schema.sql`, add the Supabase env vars in Vercel, then redeploy.
