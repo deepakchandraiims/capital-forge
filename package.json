@@ -1,6 +1,6 @@
 {
   "name": "capital-forge",
-  "version": "1.0.0-phase2",
+  "version": "1.0.0-phase3",
   "private": true,
   "engines": { "node": ">=22" },
   "scripts": {
