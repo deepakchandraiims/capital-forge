@@ -2,11 +2,15 @@
 
 **Train like an analyst. Think like an investor. Decide like a partner.**
 
-Phase 1 is a real Next.js demo-mode application for institutional finance practice. It runs without Supabase credentials and is prepared for Phase 2 persistence.
+Capital Forge is an institutional-style finance training platform for accounting, valuation, financial modeling, investment banking, private equity, venture capital, private credit, capital markets, Excel, interviews and investment judgment.
 
-## Phase 1 shipped
+## Phase 2 status
 
-- Complete responsive application, not a static landing page
+Phase 2 adds Supabase-ready authentication and cloud persistence while preserving the Phase 1 demo-mode fallback.
+
+### What is live in the app
+
+- Complete responsive Next.js application, not a static landing page
 - Institutional dark finance UI
 - Dashboard with Finance Rating, XP, streak, skill heatmap, weakest concepts and role readiness
 - Practice engine with filters, hints, confidence scoring, bookmarks and local grading
@@ -15,7 +19,9 @@ Phase 1 is a real Next.js demo-mode application for institutional finance practi
 - Daily Workout, Weakness Hunt and Challenge Me modes
 - Formula Vault and Excel Shortcut Vault
 - Interview Room, Deal Simulator, IC Mode, Mistake Journal, Investment Journal and Admin import panel
-- Supabase schema placeholders for Phase 2
+- Supabase tab with email/password sign-in and account creation
+- Automatic local persistence and optional Supabase cloud sync
+- RLS-secured Supabase schema for user profiles, full app state, attempts, bookmarks and imports
 - Vercel-ready config and GitHub Actions CI
 
 ## Run locally
@@ -40,10 +46,29 @@ Expected result:
 Capital Forge content OK: 20 categories / 1620 questions.
 ```
 
-## Deploy on Vercel
+## Supabase setup
 
-Import this repo into Vercel as a Next.js project. No environment variables are required for Phase 1 demo mode. Supabase variables can be added later for Phase 2.
+Create or choose a dedicated Supabase project for Capital Forge, then run:
 
-## Phase 2 hooks
+```sql
+-- Supabase SQL editor
+-- paste and execute supabase/schema.sql
+```
 
-Supabase table architecture lives in `supabase/schema.sql`. The current app stores attempts, mastery, bookmarks, imported questions and journals in localStorage; Phase 2 will swap that storage layer to Supabase while preserving the same product flows.
+Add these variables to Vercel and `.env.local`:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
+NEXT_PUBLIC_ENABLE_DEMO_MODE="true"
+```
+
+Do **not** expose `SUPABASE_SERVICE_ROLE_KEY` in the browser. The app only uses public/publishable keys client-side and relies on Supabase Row Level Security to restrict each user's rows.
+
+## Persistence model
+
+The app always keeps a local browser backup. When Supabase is configured and the user signs in, it loads/saves the same state to `public.capital_forge_user_state`. Structured tables for attempts, bookmarks and imports are included in the schema for the next persistence-hardening pass.
+
+## Database expansion
+
+The platform is data-driven. Additional question databases can be validated, normalized and imported without rebuilding the product architecture.
