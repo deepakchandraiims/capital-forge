@@ -1,6 +1,6 @@
 {
   "name": "capital-forge",
-  "version": "1.0.0-phase1",
+  "version": "1.0.0-phase2",
   "private": true,
   "engines": { "node": ">=22" },
   "scripts": {
@@ -12,6 +12,8 @@
     "ci:check": "npm run validate:content && npm run typecheck && npm run build"
   },
   "dependencies": {
+    "@supabase/ssr": "0.12.5",
+    "@supabase/supabase-js": "2.112.4",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
