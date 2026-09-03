@@ -2,13 +2,17 @@
 
 **Train like an analyst. Think like an investor. Decide like a partner.**
 
-Capital Forge is an institutional-style finance training platform for accounting, valuation, financial modeling, investment banking, private equity, venture capital, private credit, capital markets, Excel, interviews and investment judgment.
+Capital Forge is an institutional finance training platform for PE, IB, VC, private credit, public markets, financial modeling, interviews and investment judgment.
 
-## Phase 2 status
+## Live app
 
-Phase 2 adds Supabase-ready authentication and cloud persistence while preserving the Phase 1 demo-mode fallback.
+Production alias:
 
-### What is live in the app
+```text
+https://capital-forge-deeps3.vercel.app
+```
+
+## Phase 1 shipped
 
 - Complete responsive Next.js application, not a static landing page
 - Institutional dark finance UI
@@ -16,13 +20,27 @@ Phase 2 adds Supabase-ready authentication and cloud persistence while preservin
 - Practice engine with filters, hints, confidence scoring, bookmarks and local grading
 - 1,620 generated practice exercises across 20 finance categories
 - MCQ, numerical, formula, direct recall, interview, model-review and judgment formats
-- Daily Workout, Weakness Hunt and Challenge Me modes
 - Formula Vault and Excel Shortcut Vault
 - Interview Room, Deal Simulator, IC Mode, Mistake Journal, Investment Journal and Admin import panel
-- Supabase tab with email/password sign-in and account creation
-- Automatic local persistence and optional Supabase cloud sync
-- RLS-secured Supabase schema for user profiles, full app state, attempts, bookmarks and imports
 - Vercel-ready config and GitHub Actions CI
+
+## Phase 2 shipped
+
+- Supabase client integration using `@supabase/supabase-js`
+- Email/password sign-in and account creation UI
+- Cloud-load and cloud-save logic for user progress
+- Local fallback when Supabase env vars are missing
+- RLS-secured schema for profiles, state, attempts, bookmarks and question imports
+
+## Phase 3 shipped
+
+- AI Coach tab for IC-style answer review
+- `/api/coach` endpoint with OpenAI-compatible provider support and local fallback
+- Live Markets tab for market-driven training prompts
+- `/api/market` endpoint with source-safe demo mode when no market provider is configured
+- Backup/export workflow for progress data
+- Extended Supabase schema for AI coach reviews, market challenges and learning exports
+- Production-readiness checklist for Vercel env vars and database activation
 
 ## Run locally
 
@@ -46,29 +64,39 @@ Expected result:
 Capital Forge content OK: 20 categories / 1620 questions.
 ```
 
-## Supabase setup
+## Environment variables
 
-Create or choose a dedicated Supabase project for Capital Forge, then run:
+Demo mode works without environment variables. Add these when activating cloud features:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+AI_API_URL=
+AI_API_KEY=
+AI_MODEL=
+MARKET_DATA_API_URL=
+MARKET_DATA_API_KEY=
+```
+
+Never expose `SUPABASE_SERVICE_ROLE_KEY` to the browser.
+
+## Supabase activation
+
+Recommended: create a fresh Supabase project named `capital-forge`. Then run:
 
 ```sql
--- Supabase SQL editor
--- paste and execute supabase/schema.sql
+-- contents of supabase/schema.sql
 ```
 
-Add these variables to Vercel and `.env.local`:
+After running the schema, add the publishable Supabase URL/key to Vercel and redeploy. The app will then move from local browser storage to cloud persistence after sign-in.
 
-```bash
-NEXT_PUBLIC_SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
-NEXT_PUBLIC_ENABLE_DEMO_MODE="true"
-```
+## Current architecture
 
-Do **not** expose `SUPABASE_SERVICE_ROLE_KEY` in the browser. The app only uses public/publishable keys client-side and relies on Supabase Row Level Security to restrict each user's rows.
+The project intentionally keeps Phase 3 as a safe hybrid:
 
-## Persistence model
+- Without keys: complete local demo mode
+- With Supabase keys and schema: cloud auth + progress persistence
+- With AI provider keys: real AI coaching
+- With market provider keys: live market challenge feed
 
-The app always keeps a local browser backup. When Supabase is configured and the user signs in, it loads/saves the same state to `public.capital_forge_user_state`. Structured tables for attempts, bookmarks and imports are included in the schema for the next persistence-hardening pass.
-
-## Database expansion
-
-The platform is data-driven. Additional question databases can be validated, normalized and imported without rebuilding the product architecture.
+This keeps the app live and usable while advanced integrations are attached progressively.
