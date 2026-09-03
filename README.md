@@ -2,31 +2,48 @@
 
 **Train like an analyst. Think like an investor. Decide like a partner.**
 
-Capital Forge is an institutional-style finance training platform for accounting, valuation, financial modeling, investment banking, M&A, private equity/LBOs, venture capital, private credit, public markets, fixed income, derivatives, restructuring, Excel, interviews and investment judgment.
+Phase 1 is a real Next.js demo-mode application for institutional finance practice. It runs without Supabase credentials and is prepared for Phase 2 persistence.
 
-## Current primary build
+## Phase 1 shipped
 
-- Next.js 16 + React 19 + TypeScript
-- Institutional responsive dashboard and training UI
-- 1,620 seeded parameterized exercises across 20 major finance categories
-- Adaptive practice, mastery scoring, confidence tracking and spaced review
-- Formula Vault and Windows/Mac Excel Shortcut Vault
-- Modeling Gym, Interview Room, Investment Committee and Deal Simulator
-- Mistake Journal, Investment Journal, Skill Map and Analytics
-- Admin JSON/CSV import path for the larger database phase
-- Supabase schema, RLS and auth adapters ready to attach later
-- AI grading provider abstraction with credential-free local fallback
-- Live-market adapter that does not fabricate current information
-- Vercel-ready configuration
+- Complete responsive application, not a static landing page
+- Institutional dark finance UI
+- Dashboard with Finance Rating, XP, streak, skill heatmap, weakest concepts and role readiness
+- Practice engine with filters, hints, confidence scoring, bookmarks and local grading
+- 1,620 generated practice exercises across 20 finance categories
+- MCQ, numerical, formula, direct recall, interview, model-review and judgment formats
+- Daily Workout, Weakness Hunt and Challenge Me modes
+- Formula Vault and Excel Shortcut Vault
+- Interview Room, Deal Simulator, IC Mode, Mistake Journal, Investment Journal and Admin import panel
+- Supabase schema placeholders for Phase 2
+- Vercel-ready config and GitHub Actions CI
 
-## Deployment architecture
+## Run locally
 
-The repository contains a compressed source bundle plus `materialize.mjs`. `npm install` reconstructs the full application source tree before type-check/build. This keeps the first clean deployment atomic while the working source remains maintained separately for subsequent pushes.
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
 
-## Supabase later
+Open `http://localhost:3000`.
 
-Copy `.env.example` into your environment, add Supabase credentials, apply the included migration/seed SQL, and redeploy. Until then Capital Forge works in demo mode with local browser persistence.
+## Validate content
 
-## Later database expansion
+```bash
+npm run validate:content
+```
 
-The platform is deliberately data-driven. Additional question databases can be validated, normalized and imported without rebuilding the product architecture.
+Expected result:
+
+```bash
+Capital Forge content OK: 20 categories / 1620 questions.
+```
+
+## Deploy on Vercel
+
+Import this repo into Vercel as a Next.js project. No environment variables are required for Phase 1 demo mode. Supabase variables can be added later for Phase 2.
+
+## Phase 2 hooks
+
+Supabase table architecture lives in `supabase/schema.sql`. The current app stores attempts, mastery, bookmarks, imported questions and journals in localStorage; Phase 2 will swap that storage layer to Supabase while preserving the same product flows.
