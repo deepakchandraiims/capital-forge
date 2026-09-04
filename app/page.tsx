@@ -11,27 +11,30 @@ type Tone = "blue" | "red" | "green" | "black";
 type Question = { id: string; category: string; title: string; prompt: string; type: QuestionType; difficulty: Difficulty; xp: number; options?: string[]; correct?: string; numeric?: number; solution: string; rubric: string[] };
 type Attempt = { id: string; questionId: string; title: string; category: string; score: number; correct: boolean; answer: string; createdAt: string };
 type Store = { xp: number; attempts: Attempt[]; bookmarks: string[]; notes: string[]; launchedModules: string[]; backups: number };
-type NewsItem = { id: string; tag: string; tone: Tone; title: string; summary: string; time: string; visual: string };
+type NewsItem = { id: string; tag: string; tone: Tone; title: string; summary: string; time: string; visual: string; source?: string; url?: string };
 type ShortCase = { id: string; category: string; title: string; summary: string; difficulty: Difficulty; time: string; tone: Tone };
 type Module = { name: string; bucket: string; description: string; required: string; quickPrompt: string };
-type Health = { app?: string; phase?: string; status?: string; safeMode?: boolean; modules?: number; keyStatus?: Record<string, boolean>; generatedAt?: string; message?: string };
-type LabResult = { configured?: boolean; module?: string; output?: string; feedback?: string; strongerAnswer?: string; nextStep?: string; warning?: string; events?: Array<{ title?: string; assetClass?: string; question?: string; task?: string }> };
+type Health = { app?: string; phase?: string; status?: string; safeMode?: boolean; modules?: number; providers?: Record<string, string>; keyStatus?: Record<string, boolean>; generatedAt?: string; message?: string };
+type Quote = { symbol: string; name?: string; exchange?: string; currency?: string; price: number | null; change: number | null; percentChange: number | null; open?: number | null; high?: number | null; low?: number | null; previousClose?: number | null; volume?: number | null; timestamp?: string };
+type MarketEvent = { title?: string; assetClass?: string; question?: string; task?: string };
+type FundamentalsPayload = { symbol?: string; provider?: string; latest?: Record<string, unknown>; history?: Record<string, unknown>[]; practicePrompt?: string };
+type ApiResult = { configured?: boolean; provider?: string; backup?: boolean; warning?: string; primaryWarning?: string; module?: string; output?: string; feedback?: string; strongerAnswer?: string; nextStep?: string; news?: NewsItem[]; quote?: Quote; fundamentals?: FundamentalsPayload; events?: MarketEvent[] };
 type Grade = { score: number; correct: boolean; feedback: string; stronger: string };
 type Activity = { id: string; text: string; at: string; tone: Tone };
 
-const storeKey = "capital-forge-phase-d-open-app";
+const storeKey = "capital-forge-phase-e-open-app";
 const navTabs: NavTab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];
 const baseStore: Store = { xp: 0, attempts: [], bookmarks: [], notes: [], launchedModules: [], backups: 0 };
 
 const newsBank: NewsItem[] = [
-  { id: "n1", tag: "Markets", tone: "blue", title: "Equities rally as inflation expectations cool", summary: "Practice discount-rate sensitivity, WACC movement and exit multiple compression.", time: "2h ago", visual: "📈" },
-  { id: "n2", tag: "AI & Tech", tone: "black", title: "AI capex cycle raises valuation discipline questions", summary: "Compare revenue growth with cash conversion, capex intensity and terminal margin risk.", time: "3h ago", visual: "🤖" },
-  { id: "n3", tag: "PE / M&A", tone: "red", title: "Sponsors stay selective as dry powder meets high multiples", summary: "A useful mini-case for entry leverage, value creation and downside structure.", time: "4h ago", visual: "🏦" },
-  { id: "n4", tag: "Credit", tone: "green", title: "Private credit terms tighten for cyclical borrowers", summary: "Think through DSCR, covenants, cash sweep, pricing and downside recovery.", time: "5h ago", visual: "🧾" },
-  { id: "n5", tag: "Macro", tone: "blue", title: "Currency volatility changes imported inflation assumptions", summary: "Build a quick sensitivity around FX, gross margin and working capital.", time: "6h ago", visual: "🌐" },
-  { id: "n6", tag: "Restructuring", tone: "red", title: "Highly levered borrowers face maturity-wall pressure", summary: "Practice fulcrum-security thinking and recovery waterfall logic.", time: "7h ago", visual: "⚠️" },
-  { id: "n7", tag: "VC", tone: "green", title: "Growth investors demand cleaner unit economics", summary: "Move beyond TAM and focus on CAC payback, NDR, gross margin and burn multiple.", time: "8h ago", visual: "🚀" },
-  { id: "n8", tag: "IB", tone: "black", title: "Boards revisit strategic alternatives in slower growth pockets", summary: "Frame a sell-side pitch: buyer universe, valuation range, timing and process risk.", time: "9h ago", visual: "📊" }
+  { id: "n1", tag: "Markets", tone: "blue", title: "Equities rally as inflation expectations cool", summary: "Practice discount-rate sensitivity, WACC movement and exit multiple compression.", time: "Demo", visual: "📈", source: "Capital Forge Demo" },
+  { id: "n2", tag: "AI & Tech", tone: "black", title: "AI capex cycle raises valuation discipline questions", summary: "Compare revenue growth with cash conversion, capex intensity and terminal margin risk.", time: "Demo", visual: "🤖", source: "Capital Forge Demo" },
+  { id: "n3", tag: "PE / M&A", tone: "red", title: "Sponsors stay selective as dry powder meets high multiples", summary: "A useful mini-case for entry leverage, value creation and downside structure.", time: "Demo", visual: "🏦", source: "Capital Forge Demo" },
+  { id: "n4", tag: "Credit", tone: "green", title: "Private credit terms tighten for cyclical borrowers", summary: "Think through DSCR, covenants, cash sweep, pricing and downside recovery.", time: "Demo", visual: "🧾", source: "Capital Forge Demo" },
+  { id: "n5", tag: "Macro", tone: "blue", title: "Currency volatility changes imported inflation assumptions", summary: "Build a quick sensitivity around FX, gross margin and working capital.", time: "Demo", visual: "🌐", source: "Capital Forge Demo" },
+  { id: "n6", tag: "Restructuring", tone: "red", title: "Highly levered borrowers face maturity-wall pressure", summary: "Practice fulcrum-security thinking and recovery waterfall logic.", time: "Demo", visual: "⚠️", source: "Capital Forge Demo" },
+  { id: "n7", tag: "VC", tone: "green", title: "Growth investors demand cleaner unit economics", summary: "Move beyond TAM and focus on CAC payback, NDR, gross margin and burn multiple.", time: "Demo", visual: "🚀", source: "Capital Forge Demo" },
+  { id: "n8", tag: "IB", tone: "black", title: "Boards revisit strategic alternatives in slower growth pockets", summary: "Frame a sell-side pitch: buyer universe, valuation range, timing and process risk.", time: "Demo", visual: "📊", source: "Capital Forge Demo" }
 ];
 
 const caseBank: ShortCase[] = [
@@ -46,32 +49,32 @@ const caseBank: ShortCase[] = [
 ];
 
 const modules: Module[] = [
-  ["Recruiter Mode", "Career", "Score your project like an IB/PE recruiter.", "AI_API_KEY", "Rate my finance project like a PE recruiter."],
-  ["MD Pressure Room", "Interview", "Turn any answer into a senior pressure round.", "AI_API_KEY", "Pressure test my answer as a managing director."],
-  ["Deal Teardown Library", "Deals", "Break a deal into thesis, valuation, risks and financing.", "NEWS_API_KEY + AI_API_KEY", "Create a deal teardown checklist."],
-  ["Excel Muscle Memory", "Modeling", "Timed shortcut drills for analyst speed.", "No key", "Give me a 10-minute Excel shortcut sprint."],
-  ["Model Error Hunter", "Modeling", "Find formula, sign, circularity and assumption mistakes.", "AI_API_KEY", "Audit this model logic for mistakes."],
-  ["IC Memo Builder", "PE", "Turn raw investment thinking into IC memo format.", "AI_API_KEY", "Convert this thesis into an IC memo."],
-  ["Would You Invest Game", "Judgment", "Make invest/pass/reprice decisions.", "AI_API_KEY", "Give me an investment snapshot."],
-  ["Live News Question Engine", "Markets", "Convert headlines into finance mini-cases.", "NEWS_API_KEY", "Turn today’s market theme into questions."],
-  ["Personal Weakness Graph", "Analytics", "Map wrong attempts to concept weakness.", "Supabase", "Summarize my weakest finance topics."],
-  ["Interview Bank by Firm", "Recruiting", "Generate firm-style drills for banks and funds.", "AI_API_KEY", "Give me KKR-style PE questions."],
-  ["Deal Math Speed Trainer", "Mental Math", "EV, leverage, IRR, MOIC and dilution drills.", "No key", "Create 10 deal math questions."],
-  ["Investment Journal AI", "Thinking", "Rate and improve daily investment thinking.", "AI_API_KEY", "Rate this investment journal entry."],
-  ["Pitchbook Simulator", "IB", "Build teaser, CIM, buyer list and process timeline.", "AI_API_KEY", "Create a sell-side pitchbook outline."],
-  ["LBO Paper Test", "PE", "30-minute paper LBO with return bridge.", "No key", "Give me a paper LBO test."],
-  ["Private Credit Underwriting", "Credit", "DSCR, covenants, recovery and downside case.", "AI_API_KEY", "Create a private credit underwriting case."],
-  ["Founder Call Simulator", "Diligence", "Simulate a founder call with hidden red flags.", "AI_API_KEY", "Act like a founder in diligence."],
-  ["Red Flag Detector", "Diligence", "Scan narratives for governance and cash-flow risks.", "FILINGS_API_KEY + AI_API_KEY", "List red flags in an annual report."],
-  ["Cap Table Simulator", "VC", "Rounds, ESOP, preference and dilution practice.", "No key", "Create a VC cap table mini-case."],
-  ["Career Path Engine", "Career", "Build a weekly roadmap to IB/PE/credit.", "AI_API_KEY", "Create a 12-week IB/PE transition plan."],
-  ["Portfolio Project Tracker", "Career", "Track models, memos and recruiter proof points.", "Supabase", "Design a recruiter-grade project tracker."],
-  ["Real Filing Reader", "Research", "Convert filings into diligence checklists.", "FILINGS_API_KEY", "Give me a filing review checklist."],
-  ["AI Mentor Personas", "Mentors", "Switch between IB, PE, credit, VC and CFO mentors.", "AI_API_KEY", "Coach me like a PE VP."],
-  ["Bad Answer Rewriter", "Communication", "Rewrite weak answers into crisp interview responses.", "AI_API_KEY", "Rewrite my answer into a strong response."],
-  ["Case Competition Mode", "Projects", "Simulate a 48-hour model, memo and deck case.", "AI_API_KEY + Supabase", "Create a 48-hour PE case brief."],
-  ["Daily Killer Insight", "Learning", "One sharp finance concept and mini question.", "AI_API_KEY / NEWS_API_KEY", "Give me one killer finance insight."]
-].map(([name, bucket, description, required, quickPrompt]) => ({ name, bucket, description, required, quickPrompt }));
+  { name: "Recruiter Mode", bucket: "Career", description: "Score your project like an IB/PE recruiter.", required: "AI_API_KEY", quickPrompt: "Rate my finance project like a PE recruiter." },
+  { name: "MD Pressure Room", bucket: "Interview", description: "Turn any answer into a senior pressure round.", required: "AI_API_KEY", quickPrompt: "Pressure test my answer as a managing director." },
+  { name: "Deal Teardown Library", bucket: "Deals", description: "Break a deal into thesis, valuation, risks and financing.", required: "NEWS_API_KEY + AI_API_KEY", quickPrompt: "Create a deal teardown checklist." },
+  { name: "Excel Muscle Memory", bucket: "Modeling", description: "Timed shortcut drills for analyst speed.", required: "No key", quickPrompt: "Give me a 10-minute Excel shortcut sprint." },
+  { name: "Model Error Hunter", bucket: "Modeling", description: "Find formula, sign, circularity and assumption mistakes.", required: "AI_API_KEY", quickPrompt: "Audit this model logic for mistakes." },
+  { name: "IC Memo Builder", bucket: "PE", description: "Turn raw investment thinking into IC memo format.", required: "AI_API_KEY", quickPrompt: "Convert this thesis into an IC memo." },
+  { name: "Would You Invest Game", bucket: "Judgment", description: "Make invest/pass/reprice decisions.", required: "AI_API_KEY", quickPrompt: "Give me an investment snapshot." },
+  { name: "Live News Question Engine", bucket: "Markets", description: "Convert headlines into finance mini-cases.", required: "NEWS_API_KEY", quickPrompt: "Turn today’s market theme into questions." },
+  { name: "Personal Weakness Graph", bucket: "Analytics", description: "Map wrong attempts to concept weakness.", required: "Supabase", quickPrompt: "Summarize my weakest finance topics." },
+  { name: "Interview Bank by Firm", bucket: "Recruiting", description: "Generate firm-style drills for banks and funds.", required: "AI_API_KEY", quickPrompt: "Give me KKR-style PE questions." },
+  { name: "Deal Math Speed Trainer", bucket: "Mental Math", description: "EV, leverage, IRR, MOIC and dilution drills.", required: "No key", quickPrompt: "Create 10 deal math questions." },
+  { name: "Investment Journal AI", bucket: "Thinking", description: "Rate and improve daily investment thinking.", required: "AI_API_KEY", quickPrompt: "Rate this investment journal entry." },
+  { name: "Pitchbook Simulator", bucket: "IB", description: "Build teaser, CIM, buyer list and process timeline.", required: "AI_API_KEY", quickPrompt: "Create a sell-side pitchbook outline." },
+  { name: "LBO Paper Test", bucket: "PE", description: "30-minute paper LBO with return bridge.", required: "No key", quickPrompt: "Give me a paper LBO test." },
+  { name: "Private Credit Underwriting", bucket: "Credit", description: "DSCR, covenants, recovery and downside case.", required: "AI_API_KEY", quickPrompt: "Create a private credit underwriting case." },
+  { name: "Founder Call Simulator", bucket: "Diligence", description: "Simulate a founder call with hidden red flags.", required: "AI_API_KEY", quickPrompt: "Act like a founder in diligence." },
+  { name: "Red Flag Detector", bucket: "Diligence", description: "Scan narratives for governance and cash-flow risks.", required: "FILINGS_API_KEY + AI_API_KEY", quickPrompt: "List red flags in an annual report." },
+  { name: "Cap Table Simulator", bucket: "VC", description: "Rounds, ESOP, preference and dilution practice.", required: "No key", quickPrompt: "Create a VC cap table mini-case." },
+  { name: "Career Path Engine", bucket: "Career", description: "Build a weekly roadmap to IB/PE/credit.", required: "AI_API_KEY", quickPrompt: "Create a 12-week IB/PE transition plan." },
+  { name: "Portfolio Project Tracker", bucket: "Career", description: "Track models, memos and recruiter proof points.", required: "Supabase", quickPrompt: "Design a recruiter-grade project tracker." },
+  { name: "Real Filing Reader", bucket: "Research", description: "Convert filings into diligence checklists.", required: "FILINGS_API_KEY", quickPrompt: "Give me a filing review checklist." },
+  { name: "AI Mentor Personas", bucket: "Mentors", description: "Switch between IB, PE, credit, VC and CFO mentors.", required: "AI_API_KEY", quickPrompt: "Coach me like a PE VP." },
+  { name: "Bad Answer Rewriter", bucket: "Communication", description: "Rewrite weak answers into crisp interview responses.", required: "AI_API_KEY", quickPrompt: "Rewrite my answer into a strong response." },
+  { name: "Case Competition Mode", bucket: "Projects", description: "Simulate a 48-hour model, memo and deck case.", required: "AI_API_KEY + Supabase", quickPrompt: "Create a 48-hour PE case brief." },
+  { name: "Daily Killer Insight", bucket: "Learning", description: "One sharp finance concept and mini question.", required: "AI_API_KEY / NEWS_API_KEY", quickPrompt: "Give me one killer finance insight." }
+];
 
 const categories = ["All", "Accounting", "Corporate Finance", "Valuation", "Financial Modeling", "Excel", "Investment Banking", "M&A", "Private Equity", "VC", "Private Credit", "Markets", "Restructuring", "Interviews"];
 const difficulties: ("All" | Difficulty)[] = ["All", "Easy", "Medium", "Hard", "MD"];
@@ -79,8 +82,10 @@ const qTypes: ("All" | QuestionType)[] = ["All", "MCQ", "Subjective", "Numerical
 const apiSlots = [
   { label: "Supabase", key: "supabaseConfigured", vars: "NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", use: "Progress persistence, future auth and user state." },
   { label: "AI Coach", key: "aiConfigured", vars: "AI_API_URL + AI_API_KEY", use: "Advanced modules and answer coaching." },
-  { label: "Market Data", key: "marketConfigured", vars: "MARKET_DATA_API_URL + MARKET_DATA_API_KEY", use: "Live market challenges and macro prompts." },
-  { label: "News", key: "newsConfigured", vars: "NEWS_API_URL + NEWS_API_KEY", use: "Live news refresh and headline-to-case conversion." },
+  { label: "News", key: "newsConfigured", vars: "NEWS_API_PROVIDER=marketaux + NEWS_API_KEY", use: "Live news refresh and headline-to-case conversion." },
+  { label: "Market Data", key: "marketConfigured", vars: "MARKET_DATA_PROVIDER=twelvedata + MARKET_DATA_API_KEY", use: "Live market quotes and market-based drills." },
+  { label: "Backup Market", key: "backupMarketConfigured", vars: "BACKUP_MARKET_PROVIDER=alphavantage + BACKUP_MARKET_API_KEY", use: "Fallback quote provider if Twelve Data fails." },
+  { label: "Fundamentals", key: "fundamentalsConfigured", vars: "FUNDAMENTALS_PROVIDER=fmp + FUNDAMENTALS_API_KEY", use: "Income statements, ratios and fundamental modeling drills." },
   { label: "Filings", key: "filingsConfigured", vars: "FILINGS_API_URL + FILINGS_API_KEY", use: "Annual report, SEC/MCA and filing drills." },
   { label: "Recruiter Review", key: "recruiterReviewConfigured", vars: "RESUME_REVIEW_API_URL + RESUME_REVIEW_API_KEY", use: "Project and resume scoring workflows." },
   { label: "Admin Secret", key: "adminSecretConfigured", vars: "CAPITAL_FORGE_ADMIN_SECRET", use: "Future protected imports and admin actions." }
@@ -88,6 +93,8 @@ const apiSlots = [
 
 function rotate<T>(items: T[], by: number, count: number) { return Array.from({ length: Math.min(count, items.length) }, (_, i) => items[(by + i) % items.length]); }
 function pct(n: number, d: number) { return d ? Math.round((n / d) * 100) : 0; }
+function asTone(value: unknown): Tone { return value === "red" || value === "green" || value === "black" || value === "blue" ? value : "blue"; }
+function money(value: number | null | undefined) { return typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"; }
 
 function questionBank(): Question[] {
   return [
@@ -113,8 +120,15 @@ function questionBank(): Question[] {
 function gradeAnswer(q: Question, answer: string): Grade {
   const clean = answer.trim().toLowerCase();
   if (!clean) return { score: 0, correct: false, feedback: "No answer submitted. Attempt it first.", stronger: q.solution };
-  if (q.type === "MCQ") { const correct = clean === String(q.correct || "").toLowerCase(); return { score: correct ? 10 : 0, correct, feedback: correct ? "Correct." : "Incorrect. Revisit the bridge and economics.", stronger: q.solution }; }
-  if (q.type === "Numerical" && typeof q.numeric === "number") { const parsed = Number(clean.replace(/[^0-9.-]/g, "")); const correct = Number.isFinite(parsed) && Math.abs(parsed - q.numeric) <= (Math.abs(q.numeric) <= 10 ? 0.1 : 1); return { score: correct ? 10 : 5, correct, feedback: correct ? "Correct calculation. Now explain the implication." : `Expected around ${q.numeric}.`, stronger: q.solution }; }
+  if (q.type === "MCQ") {
+    const correct = clean === String(q.correct || "").toLowerCase();
+    return { score: correct ? 10 : 0, correct, feedback: correct ? "Correct." : "Incorrect. Revisit the bridge and economics.", stronger: q.solution };
+  }
+  if (q.type === "Numerical" && typeof q.numeric === "number") {
+    const parsed = Number(clean.replace(/[^0-9.-]/g, ""));
+    const correct = Number.isFinite(parsed) && Math.abs(parsed - q.numeric) <= (Math.abs(q.numeric) <= 10 ? 0.1 : 1);
+    return { score: correct ? 10 : 5, correct, feedback: correct ? "Correct calculation. Now explain the implication." : `Expected around ${q.numeric}.`, stronger: q.solution };
+  }
   const hits = q.rubric.filter((word) => clean.includes(word)).length;
   const score = Math.min(10, Math.max(3, hits * 2 + (answer.length > 160 ? 2 : answer.length > 80 ? 1 : 0)));
   return { score, correct: score >= 7, feedback: score >= 7 ? "Strong direction. Use conclusion → driver → risk → decision." : "Partially developed. Add drivers, downside risk and decision impact.", stronger: q.solution };
@@ -133,22 +147,25 @@ export default function Page() {
   const [confidence, setConfidence] = useState(3);
   const [showHint, setShowHint] = useState(false);
   const [grade, setGrade] = useState<Grade | null>(null);
-  const [newsOffset, setNewsOffset] = useState(0);
   const [caseOffset, setCaseOffset] = useState(0);
+  const [news, setNews] = useState<NewsItem[]>(newsBank.slice(0, 5));
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [marketSymbol, setMarketSymbol] = useState("AAPL");
   const [health, setHealth] = useState<Health | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [moduleInput, setModuleInput] = useState("");
-  const [moduleOutput, setModuleOutput] = useState<LabResult | null>(null);
+  const [moduleOutput, setModuleOutput] = useState<ApiResult | null>(null);
   const [activeModule, setActiveModule] = useState(modules[0]);
   const [interviewRole, setInterviewRole] = useState("Private Equity Associate");
-  const [interviewOutput, setInterviewOutput] = useState<LabResult | null>(null);
+  const [interviewOutput, setInterviewOutput] = useState<ApiResult | null>(null);
   const [apiInput, setApiInput] = useState("Give me one PE interview question on LBO value creation.");
-  const [apiOutput, setApiOutput] = useState<LabResult | null>(null);
+  const [apiOutput, setApiOutput] = useState<ApiResult | null>(null);
+  const [marketOutput, setMarketOutput] = useState<ApiResult | null>(null);
+  const [fundamentalsOutput, setFundamentalsOutput] = useState<ApiResult | null>(null);
   const [importText, setImportText] = useState("");
   const [activity, setActivity] = useState<Activity[]>([]);
-  const [toast, setToast] = useState("Phase D ready: integrations are monitored and fallbacks are active.");
+  const [toast, setToast] = useState("Phase E ready: provider adapters active, keys stay server-side.");
 
-  const visibleNews = useMemo(() => rotate(newsBank, newsOffset, 5), [newsOffset]);
   const visibleCases = useMemo(() => rotate(caseBank, caseOffset, 4), [caseOffset]);
   const filtered = questions.filter((q) => (category === "All" || q.category === category) && (difficulty === "All" || q.difficulty === difficulty) && (qType === "All" || q.type === qType));
   const currentQuestion = filtered.length ? filtered[qIndex % filtered.length] : questions[0];
@@ -157,59 +174,182 @@ export default function Page() {
   const accuracy = pct(correct, solved);
   const progress = Math.min(100, Math.round((store.xp / 2500) * 100));
   const supabaseReady = Boolean(health?.keyStatus?.supabaseConfigured);
+  const quote = marketOutput?.quote;
 
-  function log(text: string, tone: Tone = "blue") { const row = { id: `${Date.now()}-${Math.random()}`, text, at: new Date().toLocaleTimeString(), tone }; setActivity((old) => [row, ...old].slice(0, 12)); setToast(text); }
+  function log(text: string, tone: Tone = "blue") {
+    const row = { id: `${Date.now()}-${Math.random()}`, text, at: new Date().toLocaleTimeString(), tone };
+    setActivity((old) => [row, ...old].slice(0, 12));
+    setToast(text);
+  }
 
-  useEffect(() => { try { const raw = localStorage.getItem(storeKey); if (raw) setStore({ ...baseStore, ...JSON.parse(raw) }); } catch { setToast("Local progress could not be restored; starting clean."); } void refreshHealth(false); }, []);
-  useEffect(() => { try { localStorage.setItem(storeKey, JSON.stringify(store)); } catch { setToast("Local save failed. Export a backup before continuing."); } }, [store]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) setStore({ ...baseStore, ...JSON.parse(raw) });
+    } catch {
+      setToast("Local progress could not be restored; starting clean.");
+    }
+    void refreshHealth(false);
+    void refreshNews(false);
+    void refreshMarket(false);
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(storeKey, JSON.stringify(store)); }
+    catch { setToast("Local save failed. Export a backup before continuing."); }
+  }, [store]);
 
   async function refreshHealth(noisy = true) {
     setHealthLoading(true);
-    try { const response = await fetch(`/api/health?ts=${Date.now()}`, { cache: "no-store" }); const data = (await response.json()) as Health; setHealth(data); if (noisy) log(data.keyStatus?.supabaseConfigured ? "Health check passed: Supabase is connected." : "Health check passed, but Supabase env is not connected.", data.keyStatus?.supabaseConfigured ? "green" : "red"); }
-    catch { if (noisy) log("Health endpoint failed. Check deployment route and Vercel status.", "red"); }
-    finally { setHealthLoading(false); }
+    try {
+      const response = await fetch(`/api/health?ts=${Date.now()}`, { cache: "no-store" });
+      const data = (await response.json()) as Health;
+      setHealth(data);
+      if (noisy) log(data.keyStatus?.newsConfigured ? "Health check passed: provider keys detected." : "Health check passed, but live news key is missing.", data.keyStatus?.newsConfigured ? "green" : "red");
+    } catch {
+      if (noisy) log("Health endpoint failed. Check deployment route and Vercel status.", "red");
+    } finally {
+      setHealthLoading(false);
+    }
   }
 
-  function openPracticeFromCase(item: ShortCase) { setCategory(item.category === "Capital Markets" ? "Markets" : item.category); setDifficulty(item.difficulty); setTab("Practice"); setAnswer(""); setSelectedOption(""); setGrade(null); log(`Opened short case: ${item.title}.`, item.tone); }
-  function submitAnswer() { const finalAnswer = currentQuestion.type === "MCQ" ? selectedOption : answer; const result = gradeAnswer(currentQuestion, finalAnswer); setGrade(result); const attempt: Attempt = { id: `${Date.now()}`, questionId: currentQuestion.id, title: currentQuestion.title, category: currentQuestion.category, score: result.score, correct: result.correct, answer: finalAnswer, createdAt: new Date().toISOString() }; setStore((s) => ({ ...s, xp: s.xp + Math.round((currentQuestion.xp * result.score) / 10), attempts: [attempt, ...s.attempts].slice(0, 150) })); log(result.correct ? `Correct: +${Math.round((currentQuestion.xp * result.score) / 10)} XP added.` : "Attempt saved. Review the stronger answer.", result.correct ? "green" : "red"); }
+  async function refreshNews(noisy = true) {
+    setNewsLoading(true);
+    try {
+      const response = await fetch(`/api/news?limit=8&ts=${Date.now()}`, { cache: "no-store" });
+      const data = (await response.json()) as ApiResult;
+      const liveNews = Array.isArray(data.news) && data.news.length ? data.news.map((n) => ({ ...n, tone: asTone(n.tone), visual: n.visual || "📰", source: n.source || data.provider || "Provider" })) : newsBank;
+      setNews(liveNews.slice(0, 5));
+      if (noisy) log(data.configured ? "Live Marketaux news loaded." : "Demo news loaded because Marketaux is not active yet.", data.configured ? "green" : "blue");
+    } catch {
+      setNews(rotate(newsBank, Date.now() % newsBank.length, 5));
+      if (noisy) log("News provider failed. Demo news loaded safely.", "red");
+    } finally {
+      setNewsLoading(false);
+    }
+  }
+
+  async function refreshMarket(noisy = true) {
+    try {
+      const response = await fetch(`/api/market?symbol=${encodeURIComponent(marketSymbol || "AAPL")}&ts=${Date.now()}`, { cache: "no-store" });
+      const data = (await response.json()) as ApiResult;
+      setMarketOutput(data);
+      if (noisy) log(data.configured ? `Market quote loaded from ${data.provider}.` : "Demo market quote loaded.", data.configured ? "green" : "blue");
+    } catch {
+      setMarketOutput({ configured: false, warning: "Market endpoint failed." });
+      if (noisy) log("Market endpoint failed.", "red");
+    }
+  }
+
+  async function refreshFundamentals(noisy = true) {
+    try {
+      const response = await fetch(`/api/fundamentals?symbol=${encodeURIComponent(marketSymbol || "AAPL")}&limit=5&ts=${Date.now()}`, { cache: "no-store" });
+      const data = (await response.json()) as ApiResult;
+      setFundamentalsOutput(data);
+      if (noisy) log(data.configured ? `FMP fundamentals loaded for ${marketSymbol.toUpperCase()}.` : "Demo fundamentals loaded because FMP key is missing.", data.configured ? "green" : "blue");
+    } catch {
+      setFundamentalsOutput({ configured: false, warning: "Fundamentals endpoint failed." });
+      if (noisy) log("Fundamentals endpoint failed.", "red");
+    }
+  }
+
+  function openPracticeFromCase(item: ShortCase) {
+    setCategory(item.category === "Capital Markets" ? "Markets" : item.category);
+    setDifficulty(item.difficulty);
+    setTab("Practice");
+    setAnswer("");
+    setSelectedOption("");
+    setGrade(null);
+    log(`Opened short case: ${item.title}.`, item.tone);
+  }
+
+  function submitAnswer() {
+    const finalAnswer = currentQuestion.type === "MCQ" ? selectedOption : answer;
+    const result = gradeAnswer(currentQuestion, finalAnswer);
+    setGrade(result);
+    const attempt: Attempt = { id: `${Date.now()}`, questionId: currentQuestion.id, title: currentQuestion.title, category: currentQuestion.category, score: result.score, correct: result.correct, answer: finalAnswer, createdAt: new Date().toISOString() };
+    setStore((s) => ({ ...s, xp: s.xp + Math.round((currentQuestion.xp * result.score) / 10), attempts: [attempt, ...s.attempts].slice(0, 150) }));
+    log(result.correct ? `Correct: +${Math.round((currentQuestion.xp * result.score) / 10)} XP added.` : "Attempt saved. Review the stronger answer.", result.correct ? "green" : "red");
+  }
+
   function nextQuestion() { setQIndex((x) => x + 1); setAnswer(""); setSelectedOption(""); setShowHint(false); setGrade(null); log("Loaded next practice question.", "blue"); }
   function toggleBookmark(id: string) { const had = store.bookmarks.includes(id); setStore((s) => ({ ...s, bookmarks: had ? s.bookmarks.filter((x) => x !== id) : [id, ...s.bookmarks] })); log(had ? "Bookmark removed." : "Question bookmarked for review.", "black"); }
   function saveNote(text: string) { const clean = text.trim(); if (!clean) return; setStore((s) => ({ ...s, notes: [`${new Date().toLocaleString()} — ${clean}`, ...s.notes].slice(0, 80) })); log("Saved to Feedback journal.", "green"); }
 
   async function launchModule(module: Module, input = moduleInput || module.quickPrompt) {
     setActiveModule(module); setModuleOutput({ output: "Running module..." });
-    try { const response = await fetch("/api/lab", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ module: module.name, input }) }); const data = (await response.json()) as LabResult; setModuleOutput(data); setStore((s) => ({ ...s, launchedModules: [module.name, ...s.launchedModules.filter((x) => x !== module.name)].slice(0, 30) })); log(`${module.name} launched in ${data.configured ? "connected" : "safe-demo"} mode.`, data.configured ? "green" : "blue"); }
-    catch { setModuleOutput({ configured: false, module: module.name, output: "Module call failed. Local UI remains usable.", nextStep: "Run API → Refresh Health, then test again." }); log(`${module.name} request failed.`, "red"); }
+    try {
+      const response = await fetch("/api/lab", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ module: module.name, input }) });
+      const data = (await response.json()) as ApiResult;
+      setModuleOutput(data);
+      setStore((s) => ({ ...s, launchedModules: [module.name, ...s.launchedModules.filter((x) => x !== module.name)].slice(0, 30) }));
+      log(`${module.name} launched in ${data.configured ? "connected" : "safe-demo"} mode.`, data.configured ? "green" : "blue");
+    } catch {
+      setModuleOutput({ configured: false, module: module.name, output: "Module call failed. Local UI remains usable.", nextStep: "Run API → Refresh Health, then test again." });
+      log(`${module.name} request failed.`, "red");
+    }
   }
 
   async function startInterview() {
     setInterviewOutput({ output: "Starting mock interview..." });
-    try { const response = await fetch("/api/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "mock_interview", question: `Run a ${interviewRole} mock interview.`, answer: "Start the mock and evaluate my next answer.", context: interviewRole }) }); const data = (await response.json()) as LabResult; setInterviewOutput(data); log(`Interview Room started: ${interviewRole}.`, "blue"); }
-    catch { setInterviewOutput({ configured: false, output: "Local fallback: explain why EBITDA alone is not enough for LBO quality, then defend downside risk." }); log("Interview Room fallback started.", "red"); }
+    try {
+      const response = await fetch("/api/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "mock_interview", question: `Run a ${interviewRole} mock interview.`, answer: "Start the mock and evaluate my next answer.", context: interviewRole }) });
+      const data = (await response.json()) as ApiResult;
+      setInterviewOutput(data);
+      log(`Interview Room started: ${interviewRole}.`, "blue");
+    } catch {
+      setInterviewOutput({ configured: false, output: "Local fallback: explain why EBITDA alone is not enough for LBO quality, then defend downside risk." });
+      log("Interview Room fallback started.", "red");
+    }
   }
 
-  async function runApiTest(kind: "lab" | "coach" | "market") {
+  async function runApiTest(kind: "lab" | "coach" | "market" | "news" | "fundamentals") {
     setApiOutput({ output: "Running API test..." });
+    if (kind === "market") { await refreshMarket(true); setApiOutput({ ...marketOutput, output: "Market test sent. See Market Console below." }); return; }
+    if (kind === "news") { await refreshNews(true); setApiOutput({ configured: health?.keyStatus?.newsConfigured, provider: "marketaux", output: "News test sent. See Home news cards." }); return; }
+    if (kind === "fundamentals") { await refreshFundamentals(true); setApiOutput({ output: "Fundamentals test sent. See FMP panel below." }); return; }
     try {
-      if (kind === "market") { const response = await fetch("/api/market", { cache: "no-store" }); const data = (await response.json()) as LabResult; setApiOutput(data); log("Market endpoint tested.", data.configured ? "green" : "blue"); return; }
       const endpoint = kind === "coach" ? "/api/coach" : "/api/lab";
       const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ module: "API Console", mode: "api_console", question: apiInput, answer: apiInput, input: apiInput, context: "Capital Forge API test" }) });
-      const data = (await response.json()) as LabResult; setApiOutput(data); log(`${kind === "coach" ? "Coach" : "AI Lab"} endpoint tested.`, data.configured ? "green" : "blue");
-    } catch { setApiOutput({ configured: false, output: "API test failed. Check route availability and Vercel deployment logs." }); log("API test failed.", "red"); }
+      const data = (await response.json()) as ApiResult;
+      setApiOutput(data);
+      log(`${kind === "coach" ? "Coach" : "AI Lab"} endpoint tested.`, data.configured ? "green" : "blue");
+    } catch {
+      setApiOutput({ configured: false, output: "API test failed. Check route availability and Vercel deployment logs." });
+      log("API test failed.", "red");
+    }
   }
 
-  function exportBackup() { const payload = { exportedAt: new Date().toISOString(), app: "Capital Forge", version: "phase-d", store }; const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `capital-forge-backup-${Date.now()}.json`; anchor.click(); URL.revokeObjectURL(url); setStore((s) => ({ ...s, backups: s.backups + 1 })); log("Progress backup exported.", "green"); }
+  function exportBackup() {
+    const payload = { exportedAt: new Date().toISOString(), app: "Capital Forge", version: "phase-e", store };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `capital-forge-backup-${Date.now()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setStore((s) => ({ ...s, backups: s.backups + 1 }));
+    log("Progress backup exported.", "green");
+  }
+
   function importBackup() { try { const parsed = JSON.parse(importText) as { store?: Store }; if (!parsed.store) throw new Error("missing store"); setStore({ ...baseStore, ...parsed.store }); setImportText(""); log("Backup imported successfully.", "green"); } catch { log("Backup import failed. Paste the full exported JSON.", "red"); } }
   function resetProgress() { setStore(baseStore); setGrade(null); setAnswer(""); setSelectedOption(""); log("Local progress reset.", "red"); }
 
   return (
     <div className="appShell">
-      <aside className="sidebar"><div className="brand"><div className="logo">CF</div><div><b>Capital Forge</b><span>Finance mastery OS</span></div></div><nav>{navTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav><div className="upgrade"><b>Phase D Integration Layer</b><p>{supabaseReady ? "Supabase connected." : "Local fallback active."} Auth gate intentionally off.</p><button onClick={() => setTab("API")}>Open API Console</button></div><div className="miniLog">{activity.slice(0, 3).map((a) => <p key={a.id}><span className={`dot ${a.tone}`} />{a.text}</p>)}</div></aside>
+      <aside className="sidebar">
+        <div className="brand"><div className="logo">CF</div><div><b>Capital Forge</b><span>Finance mastery OS</span></div></div>
+        <nav>{navTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav>
+        <div className="upgrade"><b>Phase E Provider Layer</b><p>{supabaseReady ? "Supabase connected." : "Local fallback active."} Marketaux/Twelve/Alpha/FMP adapters ready.</p><button onClick={() => setTab("API")}>Open API Console</button></div>
+        <div className="miniLog">{activity.slice(0, 3).map((a) => <p key={a.id}><span className={`dot ${a.tone}`} />{a.text}</p>)}</div>
+      </aside>
+
       <main className="main">
         <header className="topbar"><div className="search"><span>⌕</span><input readOnly placeholder="Search topics, cases, formulas, modules..." onFocus={() => log("Search shell ready. Deep search comes with database expansion.", "blue")} /></div><button className="assistantBtn" onClick={() => launchModule(modules[24])}>✦ AI Assistant</button><button className="iconBtn" onClick={() => setTab("Feedback")}>🔔</button><button className="iconBtn" onClick={() => setTab("Dashboard")}>🏆</button><div className="profile"><span>DC</span><div><b>Deepak</b><small>Keep Going!</small></div></div></header>
         {toast && <div className="toast">{toast}</div>}
 
-        {tab === "Home" && <section className="layoutGrid"><div className="contentCol"><div className="heroCard"><div><p className="eyebrow">AI-powered finance learning</p><h1>Welcome back, Deepak! 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="statRow"><Stat label="Accuracy" value={`${accuracy}%`} tone="green" /><Stat label="Questions Solved" value={String(solved)} tone="blue" /><Stat label="XP" value={String(store.xp)} tone="red" /></div></div><div className="aiCube"><span>AI</span><p>Connected workflow. Safe fallbacks. Real practice loops.</p></div></div><Panel title="Live News & Updates" action={<button onClick={() => { setNewsOffset((x) => x + 1); log("News cards refreshed.", "blue"); }}>⟳ Refresh</button>} subtitle="Curated market, deal and finance prompts."><div className="newsGrid">{visibleNews.map((n) => <article className="newsCard" key={n.id}><div className={`visual ${n.tone}`}>{n.visual}</div><span className={`tag ${n.tone}`}>{n.tag}</span><small>{n.time}</small><h3>{n.title}</h3><p>{n.summary}</p><button onClick={() => { setModuleInput(`${n.title} — ${n.summary}`); setTab("Advanced"); }}>Turn into Drill →</button></article>)}</div></Panel><Panel title="Featured Short Cases" action={<button onClick={() => { setCaseOffset((x) => x + 1); log("Short cases refreshed.", "green"); }}>⟳ Refresh Cases</button>} subtitle="Short cases rotate even when live APIs are missing."><div className="caseGrid">{visibleCases.map((c, i) => <article className="caseCard" key={c.id}><div><span>Case {i + 1}</span><b className={`tag ${c.tone}`}>{c.category}</b></div><h3>{c.title}</h3><p>{c.summary}</p><small>{c.difficulty} · {c.time}</small><button onClick={() => openPracticeFromCase(c)}>Solve Now →</button></article>)}</div></Panel></div><aside className="rightRail"><Card title="Your Progress"><div className="donut" style={{ background: `conic-gradient(#2563eb ${progress}%, #e5e7eb 0)` }}><span>{progress}%</span></div><p>Overall progress based on XP target.</p></Card><Card title="7 Day Streak"><div className="streak">{["✓", "✓", "✓", "✓", "F", "S", "S"].map((x, i) => <span key={i}>{x}</span>)}</div><p>One drill daily keeps momentum.</p></Card><Card title="AI Insights"><p>Best answers include formula, driver, risk and decision. Weakness: speed under pressure.</p><button onClick={() => launchModule(modules[8])}>View Insights →</button></Card><Card title="Quick Actions"><div className="quick"><button onClick={() => setTab("Practice")}>▶ Practice</button><button onClick={() => setTab("Advanced")}>▣ Advanced</button><button onClick={startInterview}>🎥 Mock</button><button onClick={exportBackup}>↧ Backup</button></div></Card></aside></section>}
+        {tab === "Home" && <section className="layoutGrid"><div className="contentCol"><div className="heroCard"><div><p className="eyebrow">AI-powered finance learning</p><h1>Welcome back, Deepak! 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="statRow"><Stat label="Accuracy" value={`${accuracy}%`} tone="green" /><Stat label="Questions Solved" value={String(solved)} tone="blue" /><Stat label="XP" value={String(store.xp)} tone="red" /></div></div><div className="aiCube"><span>AI</span><p>Live news + market adapters. Safe demo fallback when keys are missing.</p></div></div><Panel title="Live News & Updates" action={<button onClick={() => refreshNews(true)}>{newsLoading ? "Loading..." : "⟳ Refresh Live News"}</button>} subtitle="Marketaux when connected; demo cards when not."><div className="newsGrid">{news.map((n) => <article className="newsCard" key={n.id}><div className={`visual ${n.tone}`}>{n.visual}</div><span className={`tag ${n.tone}`}>{n.tag}</span><small>{n.time} · {n.source}</small><h3>{n.title}</h3><p>{n.summary}</p><button onClick={() => { if (n.url) window.open(n.url, "_blank", "noopener,noreferrer"); else { setModuleInput(`${n.title} — ${n.summary}`); setTab("Advanced"); } }}>{n.url ? "Read Source →" : "Turn into Drill →"}</button></article>)}</div></Panel><Panel title="Featured Short Cases" action={<button onClick={() => { setCaseOffset((x) => x + 1); log("Short cases refreshed.", "green"); }}>⟳ Refresh Cases</button>} subtitle="Short cases rotate even when live APIs are missing."><div className="caseGrid">{visibleCases.map((c, i) => <article className="caseCard" key={c.id}><div><span>Case {i + 1}</span><b className={`tag ${c.tone}`}>{c.category}</b></div><h3>{c.title}</h3><p>{c.summary}</p><small>{c.difficulty} · {c.time}</small><button onClick={() => openPracticeFromCase(c)}>Solve Now →</button></article>)}</div></Panel></div><aside className="rightRail"><Card title="Market Snapshot"><label>Symbol<input value={marketSymbol} onChange={(e) => setMarketSymbol(e.target.value.toUpperCase())} /></label><button onClick={() => refreshMarket(true)}>Refresh Quote</button>{quote && <p><b>{quote.symbol}</b>: {money(quote.price)} {quote.currency || ""} · {money(quote.change)} / {money(quote.percentChange)}%</p>}<small>{marketOutput?.provider ? `Provider: ${marketOutput.provider}` : "Provider not tested yet"}</small></Card><Card title="Your Progress"><div className="donut" style={{ background: `conic-gradient(#2563eb ${progress}%, #e5e7eb 0)` }}><span>{progress}%</span></div><p>Overall progress based on XP target.</p></Card><Card title="7 Day Streak"><div className="streak">{["✓", "✓", "✓", "✓", "F", "S", "S"].map((x, i) => <span key={i}>{x}</span>)}</div><p>One drill daily keeps momentum.</p></Card><Card title="Quick Actions"><div className="quick"><button onClick={() => setTab("Practice")}>▶ Practice</button><button onClick={() => setTab("Advanced")}>▣ Advanced</button><button onClick={startInterview}>🎥 Mock</button><button onClick={exportBackup}>↧ Backup</button></div></Card></aside></section>}
 
         {tab === "Practice" && <section className="twoCol"><Panel title="Practice Controls" subtitle="Filter, attempt, review and bookmark."><label>Category<select value={category} onChange={(e) => { setCategory(e.target.value); setQIndex(0); }}>{categories.map((x) => <option key={x}>{x}</option>)}</select></label><label>Difficulty<select value={difficulty} onChange={(e) => { setDifficulty(e.target.value as "All" | Difficulty); setQIndex(0); }}>{difficulties.map((x) => <option key={x}>{x}</option>)}</select></label><label>Question Type<select value={qType} onChange={(e) => { setQType(e.target.value as "All" | QuestionType); setQIndex(0); }}>{qTypes.map((x) => <option key={x}>{x}</option>)}</select></label><button onClick={nextQuestion}>Random / Next Question</button><button className="secondary" onClick={() => { setCategory("All"); setDifficulty("All"); setQType("All"); }}>Reset Filters</button></Panel><Panel title={currentQuestion.title} subtitle={`${currentQuestion.category} · ${currentQuestion.type} · ${currentQuestion.difficulty} · ${currentQuestion.xp} XP`}><p className="prompt">{currentQuestion.prompt}</p>{currentQuestion.type === "MCQ" && currentQuestion.options ? <div className="options">{currentQuestion.options.map((o) => <button key={o} className={selectedOption === o ? "selected" : ""} onClick={() => setSelectedOption(o)}>{o}</button>)}</div> : <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Conclusion → calculation/driver → risk → decision." />}<label>Confidence: {confidence}/5<input type="range" min="1" max="5" value={confidence} onChange={(e) => setConfidence(Number(e.target.value))} /></label><div className="actions"><button onClick={submitAnswer}>Submit Answer</button><button className="secondary" onClick={() => setShowHint((x) => !x)}>Hint</button><button className="secondary" onClick={() => toggleBookmark(currentQuestion.id)}>{store.bookmarks.includes(currentQuestion.id) ? "Bookmarked" : "Bookmark"}</button><button className="secondary" onClick={nextQuestion}>Next</button></div>{showHint && <div className="note">Hint: start with the formula or decision rule, then explain the economic implication.</div>}{grade && <div className={`result ${grade.correct ? "good" : "bad"}`}><b>Score: {grade.score}/10</b><p>{grade.feedback}</p><p><b>Stronger answer:</b> {grade.stronger}</p><button onClick={() => saveNote(`Practice review — ${currentQuestion.title}: ${grade.stronger}`)}>Save to Feedback</button></div>}</Panel></section>}
 
@@ -221,7 +361,7 @@ export default function Page() {
 
         {tab === "Interview Room" && <section className="twoCol"><Panel title="Mock Interview Setup" subtitle="Start a role-specific pressure round."><label>Role<select value={interviewRole} onChange={(e) => setInterviewRole(e.target.value)}>{["Investment Banking Analyst", "Private Equity Associate", "VC / Growth Investor", "Private Credit Analyst", "CFO / Strategic Finance", "MD Pressure Round"].map((x) => <option key={x}>{x}</option>)}</select></label><button onClick={startInterview}>Start Mock Interview</button><button className="secondary" onClick={() => launchModule(modules[1], `Run a ${interviewRole} pressure interview.`)}>Send to MD Pressure Room</button></Panel><Panel title="Interview Output" subtitle="Uses AI provider when connected; otherwise local fallback.">{interviewOutput?.output || interviewOutput?.feedback ? <pre>{interviewOutput.output || interviewOutput.feedback}</pre> : <p>Choose a role and start a mock interview.</p>}</Panel></section>}
 
-        {tab === "API" && <section><Panel title="API Command Center" subtitle="Dedicated integration tab. Status comes from /api/health."><div className="actions"><button onClick={() => refreshHealth(true)}>{healthLoading ? "Checking..." : "Refresh Health"}</button><button className="secondary" onClick={() => runApiTest("lab")}>Test AI Lab</button><button className="secondary" onClick={() => runApiTest("coach")}>Test Coach</button><button className="secondary" onClick={() => runApiTest("market")}>Test Market</button></div><textarea value={apiInput} onChange={(e) => setApiInput(e.target.value)} placeholder="Prompt for API test output..." />{apiOutput && <pre>{JSON.stringify(apiOutput, null, 2)}</pre>}</Panel><div className="apiGrid">{apiSlots.map((slot) => { const connected = Boolean(health?.keyStatus?.[slot.key]); return <article className="apiCard" key={slot.key}><div><h3>{slot.label}</h3><span className={connected ? "connected" : "missing"}>{connected ? "Connected" : "Not Connected"}</span></div><p>{slot.use}</p><code>{slot.vars}</code></article>; })}</div><Panel title="Workflow Guardrail" subtitle="Current production-safe state."><p>{supabaseReady ? "Supabase environment is present in production. Since auth gate is intentionally removed, user-specific cloud writes should wait until auth is approved." : "Supabase is not available in this deployment. The app is safely using local storage."}</p><p>Local backup/export is active, so practice data can be preserved before full multi-user auth is added.</p></Panel></section>}
+        {tab === "API" && <section><Panel title="API Command Center" subtitle="Dedicated integration tab. Status comes from /api/health."><div className="actions"><button onClick={() => refreshHealth(true)}>{healthLoading ? "Checking..." : "Refresh Health"}</button><button className="secondary" onClick={() => runApiTest("news")}>Test News</button><button className="secondary" onClick={() => runApiTest("market")}>Test Market</button><button className="secondary" onClick={() => runApiTest("fundamentals")}>Test FMP</button><button className="secondary" onClick={() => runApiTest("lab")}>Test AI Lab</button><button className="secondary" onClick={() => runApiTest("coach")}>Test Coach</button></div><textarea value={apiInput} onChange={(e) => setApiInput(e.target.value)} placeholder="Prompt for API test output..." />{apiOutput && <pre>{JSON.stringify(apiOutput, null, 2)}</pre>}</Panel><div className="apiGrid">{apiSlots.map((slot) => { const connected = Boolean(health?.keyStatus?.[slot.key]); return <article className="apiCard" key={slot.key}><div><h3>{slot.label}</h3><span className={connected ? "connected" : "missing"}>{connected ? "Connected" : "Not Connected"}</span></div><p>{slot.use}</p><code>{slot.vars}</code></article>; })}</div><Panel title="Market Console" subtitle="Twelve Data primary, Alpha Vantage backup."><label>Symbol<input value={marketSymbol} onChange={(e) => setMarketSymbol(e.target.value.toUpperCase())} /></label><button onClick={() => refreshMarket(true)}>Refresh Market</button>{marketOutput && <pre>{JSON.stringify(marketOutput, null, 2)}</pre>}</Panel><Panel title="Fundamentals Console" subtitle="FMP income statement adapter. Needs real FMP key."><button onClick={() => refreshFundamentals(true)}>Load Fundamentals</button>{fundamentalsOutput && <pre>{JSON.stringify(fundamentalsOutput, null, 2)}</pre>}</Panel><Panel title="Workflow Guardrail" subtitle="Current production-safe state."><p>{supabaseReady ? "Supabase environment is present in production. Since auth gate is intentionally removed, user-specific cloud writes should wait until auth is approved." : "Supabase is not available in this deployment. The app is safely using local storage."}</p><p>Provider keys are read only by server routes. They are not exposed in the browser or committed to GitHub.</p></Panel></section>}
       </main>
     </div>
   );
