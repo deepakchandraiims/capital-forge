@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 const modules = [
   "Recruiter Mode",
   "MD Pressure Room",
@@ -44,20 +46,28 @@ const requiredKeys = [
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
 ];
 
-function status() {
-  return Object.fromEntries(requiredKeys.map((key) => [key, Boolean(process.env[key])]));
+function status(headers?: Headers) {
+  const envStatus = Object.fromEntries(requiredKeys.map((key) => [key, Boolean(process.env[key])]));
+  return {
+    ...envStatus,
+    BROWSER_AI_VAULT: Boolean(headers?.get("x-capital-forge-ai-url") && headers?.get("x-capital-forge-ai-key")),
+    BROWSER_NEWS_VAULT: Boolean(headers?.get("x-capital-forge-news-key")),
+    BROWSER_MARKET_VAULT: Boolean(headers?.get("x-capital-forge-market-key")),
+    BROWSER_BACKUP_MARKET_VAULT: Boolean(headers?.get("x-capital-forge-backup-market-key")),
+    BROWSER_FUNDAMENTALS_VAULT: Boolean(headers?.get("x-capital-forge-fundamentals-key"))
+  };
 }
 
-export async function GET() {
-  const keyStatus = status();
+export async function GET(request: Request) {
+  const keyStatus = status(request.headers);
   return NextResponse.json({
     app: "Capital Forge",
-    phase: "world-class-ai-layer",
-    mode: process.env.AI_API_KEY ? "connected" : "safe-demo",
+    phase: "phase-e-api-vault-ai-layer",
+    mode: process.env.AI_API_KEY || request.headers.get("x-capital-forge-ai-key") ? "connected" : "safe-demo",
     modules,
     keyStatus,
-    message: process.env.AI_API_KEY
-      ? "AI provider detected. Advanced modules can call the configured provider."
+    message: process.env.AI_API_KEY || request.headers.get("x-capital-forge-ai-key")
+      ? "AI provider detected through Vercel env or browser vault. Advanced modules can call the configured provider."
       : "No AI provider key is configured yet. The app will use deterministic local coaching and demo simulations."
   });
 }
@@ -67,16 +77,16 @@ export async function POST(req: Request) {
     const body = await req.json();
     const moduleName = String(body.module || "AI Mentor Personas");
     const input = String(body.input || "").trim();
-    const apiUrl = process.env.AI_API_URL;
-    const apiKey = process.env.AI_API_KEY;
-    const model = process.env.AI_MODEL || "gpt-4.1-mini";
+    const apiUrl = process.env.AI_API_URL || req.headers.get("x-capital-forge-ai-url") || "";
+    const apiKey = process.env.AI_API_KEY || req.headers.get("x-capital-forge-ai-key") || "";
+    const model = process.env.AI_MODEL || req.headers.get("x-capital-forge-ai-model") || body.model || "gpt-4.1-mini";
 
     if (!apiUrl || !apiKey) {
       return NextResponse.json({
         configured: false,
         module: moduleName,
         output: `Safe-demo output for ${moduleName}: start with conclusion, quantify the driver, identify the risk, pressure-test downside, and end with a decision. Input received: ${input || "No input"}`,
-        nextStep: "Add AI_API_URL and AI_API_KEY in Vercel to switch this module from local demo to AI provider mode."
+        nextStep: "Add AI API URL/key in the API tab or add AI_API_URL and AI_API_KEY in Vercel env to switch from demo to AI provider mode."
       });
     }
 
@@ -100,20 +110,22 @@ export async function POST(req: Request) {
       })
     });
 
-    if (!response.ok) throw new Error("provider_failed");
+    if (!response.ok) throw new Error(`provider_failed_${response.status}`);
     const json = await response.json();
     return NextResponse.json({
       configured: true,
+      source: process.env.AI_API_KEY ? "vercel-env" : "browser-vault",
+      model,
       module: moduleName,
       output: json?.choices?.[0]?.message?.content || "No provider output returned.",
-      nextStep: "Save this as a coach review, attempt, journal entry, IC note or project score in Supabase."
+      nextStep: "Save this as a coach review, attempt, journal entry, IC note or project score in Supabase later."
     });
   } catch {
     return NextResponse.json({
       configured: false,
       module: "fallback",
       output: "The AI lab request could not be processed. Local fallback remains active.",
-      nextStep: "Check API URL, key and provider response format."
+      nextStep: "Check API URL, key, model name and provider response format."
     });
   }
 }
