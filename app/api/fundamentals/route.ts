@@ -21,6 +21,12 @@ type FmpIncomeStatement = {
   finalLink?: string;
 };
 
+type FmpError = {
+  "Error Message"?: string;
+  error?: string;
+  message?: string;
+};
+
 const demoFundamentals = {
   symbol: "AAPL",
   provider: "Capital Forge Demo",
@@ -43,7 +49,21 @@ const demoFundamentals = {
 };
 
 function cleanBaseUrl(value: string) {
-  return value.replace(/\/$/, "");
+  const cleaned = value.replace(/\/$/, "");
+
+  // FMP retired the /api/v3 legacy financial statement endpoints for new users.
+  // Keep old Vercel/browser settings working by automatically moving them to /stable.
+  if (cleaned.includes("financialmodelingprep.com/api/v3")) {
+    return "https://financialmodelingprep.com/stable";
+  }
+
+  return cleaned;
+}
+
+function getFmpErrorMessage(payload: unknown) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") return "";
+  const errorPayload = payload as FmpError;
+  return errorPayload["Error Message"] || errorPayload.error || errorPayload.message || "";
 }
 
 export async function GET(request: Request) {
@@ -64,14 +84,23 @@ export async function GET(request: Request) {
   }
 
   try {
-    const base = cleanBaseUrl(process.env.FUNDAMENTALS_API_URL || request.headers.get("x-capital-forge-fundamentals-url") || "https://financialmodelingprep.com/api/v3");
-    const url = new URL(`${base}/income-statement/${symbol}`);
+    const base = cleanBaseUrl(process.env.FUNDAMENTALS_API_URL || request.headers.get("x-capital-forge-fundamentals-url") || "https://financialmodelingprep.com/stable");
+    const usesStableApi = base.includes("financialmodelingprep.com/stable");
+    const url = new URL(usesStableApi ? `${base}/income-statement` : `${base}/income-statement/${symbol}`);
+
+    if (usesStableApi) url.searchParams.set("symbol", symbol);
     url.searchParams.set("limit", String(limit));
     url.searchParams.set("apikey", apiKey);
 
     const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error(`FMP ${response.status}`);
-    const data = await response.json() as FmpIncomeStatement[];
+    const payload = await response.json();
+    const apiError = getFmpErrorMessage(payload);
+
+    if (!response.ok || apiError) {
+      throw new Error(apiError || `FMP ${response.status}`);
+    }
+
+    const data = payload as FmpIncomeStatement[];
     if (!Array.isArray(data) || !data.length) throw new Error("FMP returned no income statement data");
 
     const latest = data[0];
@@ -79,6 +108,7 @@ export async function GET(request: Request) {
       configured: true,
       provider: "fmp",
       source: process.env.FUNDAMENTALS_API_KEY || process.env.FMP_API_KEY ? "vercel-env" : "browser-vault",
+      endpoint: usesStableApi ? "stable/income-statement" : "legacy/income-statement",
       symbol,
       fundamentals: {
         symbol,
