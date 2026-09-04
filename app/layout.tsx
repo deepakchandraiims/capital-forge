@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./prepmate.css";
 import "./advanced.css";
+import "./interview.css";
 import NavRouteBridge from "./NavRouteBridge";
 
 export const metadata: Metadata = {
