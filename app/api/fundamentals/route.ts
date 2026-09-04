@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 type FmpIncomeStatement = {
   date?: string;
   symbol?: string;
@@ -48,25 +50,26 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = (searchParams.get("symbol") || "AAPL").trim().toUpperCase();
   const limit = Math.min(10, Number(searchParams.get("limit") || 5));
-  const provider = (process.env.FUNDAMENTALS_PROVIDER || "fmp").toLowerCase();
-  const apiKey = process.env.FUNDAMENTALS_API_KEY || process.env.FMP_API_KEY;
+  const provider = (process.env.FUNDAMENTALS_PROVIDER || request.headers.get("x-capital-forge-fundamentals-provider") || "fmp").toLowerCase();
+  const apiKey = process.env.FUNDAMENTALS_API_KEY || process.env.FMP_API_KEY || request.headers.get("x-capital-forge-fundamentals-key") || "";
 
   if (!apiKey || provider !== "fmp") {
     return NextResponse.json({
       configured: false,
       provider,
+      source: apiKey ? "unsupported" : "demo",
       warning: !apiKey ? "FUNDAMENTALS_API_KEY missing. Returning demo fundamentals." : "Only FMP is enabled in this adapter. Returning demo fundamentals.",
       fundamentals: { ...demoFundamentals, symbol }
     });
   }
 
   try {
-    const base = cleanBaseUrl(process.env.FUNDAMENTALS_API_URL || "https://financialmodelingprep.com/api/v3");
+    const base = cleanBaseUrl(process.env.FUNDAMENTALS_API_URL || request.headers.get("x-capital-forge-fundamentals-url") || "https://financialmodelingprep.com/api/v3");
     const url = new URL(`${base}/income-statement/${symbol}`);
     url.searchParams.set("limit", String(limit));
     url.searchParams.set("apikey", apiKey);
 
-    const response = await fetch(url, { next: { revalidate: 3600 } });
+    const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`FMP ${response.status}`);
     const data = await response.json() as FmpIncomeStatement[];
     if (!Array.isArray(data) || !data.length) throw new Error("FMP returned no income statement data");
@@ -75,6 +78,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       configured: true,
       provider: "fmp",
+      source: process.env.FUNDAMENTALS_API_KEY || process.env.FMP_API_KEY ? "vercel-env" : "browser-vault",
       symbol,
       fundamentals: {
         symbol,
@@ -89,6 +93,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       configured: false,
       provider: "fmp",
+      source: "fallback",
       warning: error instanceof Error ? error.message : "FMP request failed. Returning demo fundamentals.",
       fundamentals: { ...demoFundamentals, symbol }
     });
