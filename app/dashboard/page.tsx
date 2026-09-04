@@ -33,7 +33,10 @@ function masteryTone(value:number){ if(value>=85)return"green"; if(value>=70)ret
 function safeParse(key:string){ try{ const raw=localStorage.getItem(key); return raw?JSON.parse(raw):null; }catch{return null;} }
 function go(tab:string, focus?:string){
   if(focus) localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify({topic:focus,createdAt:new Date().toISOString()}));
-  window.location.assign(`/?open=${encodeURIComponent(tab)}`);
+  if(tab==="Home") window.location.assign("/home");
+  else if(tab==="Dashboard") window.location.assign("/dashboard");
+  else if(tab==="Feedback") window.location.assign("/feedback");
+  else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
 }
 
 export default function DashboardPage(){
