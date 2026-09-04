@@ -7,7 +7,8 @@ const APP_TABS = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Inte
 const DIRECT_ROUTES: Record<string, string> = {
   Home: "/home",
   Dashboard: "/dashboard",
-  Feedback: "/feedback"
+  Feedback: "/feedback",
+  "Interview Room": "/interview"
 };
 
 function clean(text: string) {
@@ -64,14 +65,13 @@ export default function NavRouteBridge() {
       }
 
       const active = document.querySelector(
-        ".side-nav button.active, .pm-nav button.active, .dash-nav button.active, .feedback-nav button.active, .home-sidebar nav button.active"
+        ".side-nav button.active, .pm-nav button.active, .dash-nav button.active, .feedback-nav button.active, .home-sidebar nav button.active, .ir-sidebar nav button.active"
       ) as HTMLButtonElement | null;
 
       const activeRoute = active ? directRouteFor(active.textContent || "") : undefined;
       if (activeRoute) navigate(activeRoute, true);
     };
 
-    // pointerdown prevents the legacy React onClick from changing the root tab first.
     document.addEventListener("pointerdown", handleNavigationEvent, true);
     document.addEventListener("click", handleNavigationEvent, true);
 
@@ -84,10 +84,7 @@ export default function NavRouteBridge() {
       attributeFilter: ["class"]
     });
 
-    // Safety net: if any legacy component programmatically activates Home/Dashboard/Feedback,
-    // redirect before the placeholder can remain visible.
     const guard = window.setInterval(enforceRootRoute, 150);
-
     enforceRootRoute();
 
     return () => {
