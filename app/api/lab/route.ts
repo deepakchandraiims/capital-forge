@@ -47,7 +47,7 @@ const requiredKeys = [
 ];
 
 function status(headers?: Headers) {
-  const envStatus = Object.fromEntries(requiredKeys.map((key) => [key, Boolean(process.env[key])]));
+  const envStatus = Object.fromEntries(requiredKeys.map((key) => [key, Boolean(process.env[key])])) as Record<string, boolean>;
   return {
     ...envStatus,
     BROWSER_AI_VAULT: Boolean(headers?.get("x-capital-forge-ai-url") && headers?.get("x-capital-forge-ai-key")),
@@ -58,74 +58,122 @@ function status(headers?: Headers) {
   };
 }
 
+function clean(value?: string | null) {
+  return String(value || "").trim().replace(/^['"`]+|['"`]+$/g, "");
+}
+
+function resolveModel(apiUrl: string, rawModel?: string | null) {
+  const model = clean(rawModel);
+  if (apiUrl.includes("integrate.api.nvidia.com") && (!model || model === "gpt-4.1-mini")) {
+    return "nvidia/nemotron-3.5-lightning-30b-a3b";
+  }
+  return model || "gpt-4.1-mini";
+}
+
+function aiPayload(apiUrl: string, model: string, moduleName: string, input: string) {
+  const isNvidia = apiUrl.includes("integrate.api.nvidia.com");
+  const base = {
+    model,
+    temperature: isNvidia ? 0.6 : 0.25,
+    top_p: isNvidia ? 0.95 : undefined,
+    max_tokens: isNvidia ? 1800 : 1600,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are Capital Forge: an elite PE/IB/VC/private credit training engine. Be direct, technical, interview-grade and action-oriented. Never invent live market facts."
+      },
+      {
+        role: "user",
+        content: `Module: ${moduleName}\nUser input: ${input || "Create a sharp finance practice drill."}\nReturn: title, answer, key formulas, 3 pressure questions, and next drill.`
+      }
+    ]
+  } as Record<string, unknown>;
+
+  if (isNvidia) {
+    base.extra_body = { chat_template_kwargs: { enable_thinking: false } };
+  }
+
+  return JSON.parse(JSON.stringify(base));
+}
+
+function extractOutput(json: any) {
+  const choice = json?.choices?.[0];
+  const message = choice?.message || choice?.delta || {};
+  return (
+    message.content ||
+    message.reasoning_content ||
+    choice?.text ||
+    json?.output_text ||
+    "No provider output returned."
+  );
+}
+
+function safeFallback(moduleName: string, input: string, warning?: string) {
+  return {
+    configured: false,
+    module: moduleName || "fallback",
+    output: `Local fallback for ${moduleName || "AI Lab"}: start with conclusion, quantify the driver, identify the risk, pressure-test downside, and end with a decision. Input received: ${input || "No input"}`,
+    nextStep: warning || "Check AI_API_URL, AI_API_KEY, AI_MODEL and redeploy after editing Vercel env."
+  };
+}
+
 export async function GET(request: Request) {
   const keyStatus = status(request.headers);
   return NextResponse.json({
     app: "Capital Forge",
-    phase: "phase-e-api-vault-ai-layer",
+    phase: "phase-f-nvidia-ready-ai-layer",
     mode: process.env.AI_API_KEY || request.headers.get("x-capital-forge-ai-key") ? "connected" : "safe-demo",
     modules,
     keyStatus,
     message: process.env.AI_API_KEY || request.headers.get("x-capital-forge-ai-key")
-      ? "AI provider detected through Vercel env or browser vault. Advanced modules can call the configured provider."
-      : "No AI provider key is configured yet. The app will use deterministic local coaching and demo simulations."
+      ? "AI provider detected. POST requests use the OpenAI-compatible route with NVIDIA NIM hardening."
+      : "No AI key configured. Local coaching remains active."
   });
 }
 
 export async function POST(req: Request) {
+  let moduleName = "AI Mentor Personas";
+  let input = "";
   try {
     const body = await req.json();
-    const moduleName = String(body.module || "AI Mentor Personas");
-    const input = String(body.input || "").trim();
-    const apiUrl = process.env.AI_API_URL || req.headers.get("x-capital-forge-ai-url") || "";
-    const apiKey = process.env.AI_API_KEY || req.headers.get("x-capital-forge-ai-key") || "";
-    const model = process.env.AI_MODEL || req.headers.get("x-capital-forge-ai-model") || body.model || "gpt-4.1-mini";
+    moduleName = clean(body.module) || "AI Mentor Personas";
+    input = String(body.input || "").trim();
+    const apiUrl = clean(process.env.AI_API_URL || req.headers.get("x-capital-forge-ai-url"));
+    const apiKey = clean(process.env.AI_API_KEY || req.headers.get("x-capital-forge-ai-key"));
+    const model = resolveModel(apiUrl, process.env.AI_MODEL || req.headers.get("x-capital-forge-ai-model") || body.model);
 
     if (!apiUrl || !apiKey) {
-      return NextResponse.json({
-        configured: false,
-        module: moduleName,
-        output: `Safe-demo output for ${moduleName}: start with conclusion, quantify the driver, identify the risk, pressure-test downside, and end with a decision. Input received: ${input || "No input"}`,
-        nextStep: "Add AI API URL/key in the API tab or add AI_API_URL and AI_API_KEY in Vercel env to switch from demo to AI provider mode."
-      });
+      return NextResponse.json(safeFallback(moduleName, input, "AI key or URL missing."));
     }
 
     const endpoint = apiUrl.endsWith("/chat/completions") ? apiUrl : `${apiUrl.replace(/\/$/, "")}/chat/completions`;
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature: 0.25,
-        messages: [
-          {
-            role: "system",
-            content: "You are Capital Forge: an elite PE/IB/VC/private credit training engine. Be direct, technical, interview-grade and action-oriented. Never invent live market facts."
-          },
-          {
-            role: "user",
-            content: JSON.stringify({ module: moduleName, input })
-          }
-        ]
-      })
+      body: JSON.stringify(aiPayload(apiUrl, model, moduleName, input))
     });
 
-    if (!response.ok) throw new Error(`provider_failed_${response.status}`);
-    const json = await response.json();
+    const text = await response.text();
+    if (!response.ok) {
+      return NextResponse.json({
+        ...safeFallback(moduleName, input, `AI provider rejected the call: ${response.status} ${text.slice(0, 500)}`),
+        providerStatus: response.status,
+        source: process.env.AI_API_KEY ? "vercel-env" : "browser-vault",
+        model
+      });
+    }
+
+    const json = text ? JSON.parse(text) : {};
     return NextResponse.json({
       configured: true,
       source: process.env.AI_API_KEY ? "vercel-env" : "browser-vault",
       model,
       module: moduleName,
-      output: json?.choices?.[0]?.message?.content || "No provider output returned.",
-      nextStep: "Save this as a coach review, attempt, journal entry, IC note or project score in Supabase later."
+      output: extractOutput(json),
+      nextStep: "Save this as a coach review, attempt, journal entry, IC note or project score."
     });
-  } catch {
-    return NextResponse.json({
-      configured: false,
-      module: "fallback",
-      output: "The AI lab request could not be processed. Local fallback remains active.",
-      nextStep: "Check API URL, key, model name and provider response format."
-    });
+  } catch (error) {
+    return NextResponse.json(safeFallback(moduleName, input, error instanceof Error ? error.message : "AI lab request failed."));
   }
 }
