@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 type CoachRequest = {
   mode?: string;
   question?: string;
   answer?: string;
   context?: string;
+  model?: string;
 };
 
 function localCoach(body: CoachRequest) {
@@ -26,9 +29,9 @@ function localCoach(body: CoachRequest) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as CoachRequest;
-    const apiUrl = process.env.AI_API_URL;
-    const apiKey = process.env.AI_API_KEY;
-    const model = process.env.AI_MODEL || "gpt-4.1-mini";
+    const apiUrl = process.env.AI_API_URL || req.headers.get("x-capital-forge-ai-url") || "";
+    const apiKey = process.env.AI_API_KEY || req.headers.get("x-capital-forge-ai-key") || "";
+    const model = process.env.AI_MODEL || req.headers.get("x-capital-forge-ai-model") || body.model || "gpt-4.1-mini";
 
     if (!apiUrl || !apiKey) return NextResponse.json(localCoach(body));
 
@@ -73,7 +76,9 @@ export async function POST(req: Request) {
       feedback: text.slice(0, 1800),
       strongerAnswer: "Use the AI feedback above to rewrite your answer with conclusion → calculation/driver → risk → recommendation.",
       followUp: "Now answer the same question as a skeptical MD asks: what could break this thesis?",
-      configured: true
+      configured: true,
+      source: process.env.AI_API_KEY ? "vercel-env" : "browser-vault",
+      model
     });
   } catch {
     return NextResponse.json(localCoach({}));
