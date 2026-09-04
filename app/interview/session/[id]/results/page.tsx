@@ -1,0 +1,23 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import styles from "../../session.module.css";
+
+type Session={id:string;title:string;interviewType:string;careerTrack:string;duration:number;difficulty:string;questionMix:string;createdAt:string;completedAt?:string;status:string;overallScore?:number;technicalScore?:number;behavioralScore?:number;caseScore?:number;communicationScore?:number};
+type Answer={question:string;text:string;score:number};
+const SESSION_KEY="capital-forge-interview-sessions-v1";
+function readSessions():Session[]{try{const raw=localStorage.getItem(SESSION_KEY);return raw?JSON.parse(raw):[]}catch{return[]}}
+function readAnswers(id:string):Answer[]{try{const raw=localStorage.getItem(`capital-forge-interview-answers-${id}`);return raw?JSON.parse(raw):[]}catch{return[]}}
+
+export default function InterviewResults(){
+  const params=useParams<{id:string}>();const id=String(params.id);const [session,setSession]=useState<Session|null>(null);const [answers,setAnswers]=useState<Answer[]>([]);
+  useEffect(()=>{setSession(readSessions().find(s=>s.id===id)||null);setAnswers(readAnswers(id))},[id]);
+  if(!session)return <div className={styles.shell}><main className={styles.main}><section className={styles.device}><h1>Result not found</h1><p>This report is not available in this browser.</p><button className={styles.primary} onClick={()=>window.location.assign("/interview")}>Back to Interview Room</button></section></main></div>;
+  const overall=session.overallScore??Math.round(answers.reduce((s,a)=>s+a.score,0)/Math.max(1,answers.length));
+  const weakest=[...answers].sort((a,b)=>a.score-b.score)[0];const strongest=[...answers].sort((a,b)=>b.score-a.score)[0];
+  function practiceWeak(){localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify({topic:session.interviewType==="Technical"?"Valuation":session.interviewType==="Case"?"Private Equity":"Behavioral Questions",source:"interview-results",createdAt:new Date().toISOString()}));window.location.assign("/?open=Practice")}
+  return <div className={styles.shell}><Top/><main className={styles.main}><div className={styles.results}><section className={styles.resultsHero}><div className={styles.scoreRing} style={{background:`conic-gradient(#0875fa 0 ${overall}%,#e8edf4 ${overall}% 100%)`}}><div><b>{overall}%</b><span>Overall Score</span></div></div><div><h1>{session.title}</h1><p>{session.completedAt||"Completed"} · {session.duration} min · {session.difficulty}</p><div className={styles.ctaRow}><button className={styles.primary} onClick={practiceWeak}>Practice Weak Questions</button><button className={styles.secondary} onClick={()=>window.location.assign("/feedback")}>Open Feedback</button><button className={styles.secondary} onClick={()=>window.location.assign("/interview")}>Interview Room</button></div></div></section><div className={styles.metrics}><Metric label="Technical" value={session.technicalScore??overall}/><Metric label="Behavioral" value={session.behavioralScore??overall}/><Metric label="Case" value={session.caseScore??overall}/><Metric label="Communication" value={session.communicationScore??overall}/></div><section className={styles.section}><h2>Session Summary</h2><p><b>Strongest answer:</b> {strongest?`${strongest.score}% — ${strongest.question}`:"No answer data stored for this demo session."}</p><p><b>Weakest answer:</b> {weakest?`${weakest.score}% — ${weakest.question}`:"No answer data stored for this demo session."}</p><p>Recommended next step: practice the weakest concepts, review the relevant Advanced module, then repeat a focused interview at the same or slightly higher difficulty.</p></section><section className={styles.section}><h2>Question-Level Review</h2>{answers.length?answers.map((a,i)=><div className={styles.answerRow} key={i}><b>Q{i+1}. {a.question} — {a.score}%</b><p>{a.text}</p></div>):<p>This reference session does not yet have question-level transcript data. New interviews created in Capital Forge will store it here.</p>}</section></div></main></div>
+}
+function Metric({label,value}:{label:string;value:number}){return <div className={styles.metric}><small>{label}</small><b>{value}%</b></div>}
+function Top(){return <header className={styles.top}><div className={styles.brand}><div className={styles.mark}>CF</div><div><b>Capital Forge Interview Report</b><small>Persistent session feedback</small></div></div><div className={styles.topActions}><button onClick={()=>window.location.assign("/dashboard")}>Dashboard</button><button onClick={()=>window.location.assign("/interview")}>Interview Room</button></div></header>}
