@@ -15,9 +15,9 @@ type MarketauxItem = {
 };
 
 const demoNews = [
-  { id: "demo-news-1", tag: "Markets", tone: "blue", title: "Markets update unavailable — practice mode active", summary: "Connect Marketaux in the API tab or Vercel env to replace this with live financial news.", time: "Demo", visual: "📈", source: "Capital Forge Demo" },
-  { id: "demo-news-2", tag: "PE / M&A", tone: "red", title: "Sponsor entry multiples remain a key underwriting variable", summary: "Use this fallback card to practice entry multiple, leverage and downside return sensitivity.", time: "Demo", visual: "🏦", source: "Capital Forge Demo" },
-  { id: "demo-news-3", tag: "Credit", tone: "green", title: "Private credit case mode is ready", summary: "Test DSCR, covenants, recovery and refinancing risk until a live provider is connected.", time: "Demo", visual: "🧾", source: "Capital Forge Demo" }
+  { id: "demo-news-1", tag: "Markets", tone: "blue", title: "Markets update unavailable — practice mode active", summary: "Connect Marketaux in the API tab or Vercel env to replace this with live financial news.", time: "Demo", visual: "📈", imageUrl: "", source: "Capital Forge Demo" },
+  { id: "demo-news-2", tag: "PE / M&A", tone: "red", title: "Sponsor entry multiples remain a key underwriting variable", summary: "Use this fallback card to practice entry multiple, leverage and downside return sensitivity.", time: "Demo", visual: "🏦", imageUrl: "", source: "Capital Forge Demo" },
+  { id: "demo-news-3", tag: "Credit", tone: "green", title: "Private credit case mode is ready", summary: "Test DSCR, covenants, recovery and refinancing risk until a live provider is connected.", time: "Demo", visual: "🧾", imageUrl: "", source: "Capital Forge Demo" }
 ];
 
 function toneFor(title: string) {
@@ -92,7 +92,8 @@ export async function GET(request: Request) {
         title,
         summary: item.description || item.snippet || "Open this live item and convert it into a valuation, credit or interview drill.",
         time: relativeTime(item.published_at),
-        visual: item.image_url ? "📰" : "📈",
+        visual: item.image_url ? "" : "📈",
+        imageUrl: item.image_url || "",
         source: item.source || "Marketaux",
         url: item.url
       };
