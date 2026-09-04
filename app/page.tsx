@@ -1,90 +1,305 @@
 "use client";
 
-import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 
-type QType = "mcq" | "numerical" | "direct" | "formula" | "interview" | "judgment" | "model-review";
-type Question = { id:string; category:string; concept:string; title:string; prompt:string; type:QType; difficulty:number; role:string; xp:number; options?:string[]; correct?:string; numeric?:number; solution:string; why:string; hints:string[]; rubric?:string[] };
-type Attempt = { id:string; qid:string; category:string; concept:string; score:number; correct:boolean; confidence:number; answer:string; at:string };
-type Store = { attempts:Attempt[]; xp:number; bookmarks:string[]; journal:string[]; custom:Question[] };
-type Grade = { score:number; correct:boolean; feedback:string; stronger:string };
-type Feature = { name:string; bucket:string; use:string; api:string; output:string; mode:string };
-type LabResult = { configured?:boolean; module?:string; output?:string; nextStep?:string };
+type Tab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room" | "API";
+type Difficulty = "Easy" | "Medium" | "Hard" | "MD";
+type QuestionType = "MCQ" | "Formula" | "Numerical" | "Subjective" | "Case" | "Interview" | "Model Review";
+type NewsItem = { tag: string; title: string; summary: string; time: string; tone: "blue" | "red" | "green" | "black" };
+type ShortCase = { category: string; title: string; summary: string; difficulty: Difficulty; minutes: number };
+type Question = { id: string; category: string; type: QuestionType; difficulty: Difficulty; prompt: string; options?: string[]; answer: string; explanation: string; keywords?: string[] };
+type Module = { name: string; bucket: string; description: string; required: string; demo: boolean };
+type Attempt = { id: string; title: string; score: number; at: string; category: string };
+type HealthResponse = { app?: string; phase?: string; status?: string; safeMode?: boolean; modules?: number; keyStatus?: Record<string, boolean>; message?: string };
 
-const storeKey="capital-forge-core-first-v2";
-const initial:Store={attempts:[],xp:0,bookmarks:[],journal:[],custom:[]};
-const cats=[
-["Accounting",70,"Technical"],["Corporate Finance",60,"Technical"],["Valuation",100,"IB / PE"],["Financial Modeling",150,"Modeling"],["Excel & Modeling Shortcuts",100,"Modeling"],["Investment Banking",120,"IB"],["M&A",100,"Deal"],["Private Equity / LBO",140,"PE"],["Venture Capital / Growth Equity",80,"VC"],["Private Credit",70,"Credit"],["Equity Research / Public Markets",70,"Markets"],["Fixed Income & Credit",70,"Credit"],["Derivatives",60,"Markets"],["Macro / FX / Commodities",50,"Macro"],["Portfolio Management / Risk",50,"Risk"],["Distressed / Restructuring",60,"Special Sits"],["ECM / DCM / Capital Markets",60,"Capital Markets"],["Quant / Data Analysis",50,"Quant"],["Finance Interviews",80,"Recruiting"],["Investment Judgment / IC",80,"IC"]
-] as const;
-const coreTabs=["Dashboard","Practice","Formula Vault","Excel Vault","Interview","Deal Simulator","IC Mode","Journals","Admin"];
-const advancedTabs=["AI World","AI Coach","Live Markets","API Keys","Supabase"];
-const formulas=[["FCFF from EBIT","EBIT × (1−T) + D&A − Capex − ΔNWC","Unlevered cash flow before financing."],["Enterprise Value","Equity Value + Debt + Preferred + MI − Cash","Operating value independent of capital structure."],["WACC","E/V×Ke + D/V×Kd×(1−T)","Discount rate for unlevered FCF."],["MOIC","Exit Equity / Entry Sponsor Equity","Cash-on-cash return."],["DSCR","CFADS / Debt Service","Cash-flow debt-service coverage."],["Recovery Rate","Recovery Value / Claim","Creditor outcome in restructuring."]];
-const excel=[["Trace precedents","Ctrl + [","⌃ + ["],["Trace dependents","Ctrl + ]","⌃ + ]"],["Edit active cell","F2","⌃ + U"],["Format cells","Ctrl + 1","⌘ + 1"],["Show formulas","Ctrl + `","⌃ + `"],["Calculate workbook","F9","Fn + F9"],["Fill right","Ctrl + R","⌘ + R"],["Go to special","Ctrl + G","⌃ + G"]];
-const features:Feature[]=[
-{name:"Recruiter Mode",bucket:"Career",use:"Paste your project/model summary and get PE/IB recruiter-style scoring.",api:"AI_API_KEY",output:"20-criteria scorecard",mode:"ready"},
-{name:"MD Pressure Room",bucket:"Interview",use:"Answer under senior banker/partner pressure with follow-up traps.",api:"AI_API_KEY",output:"Cross-question drill",mode:"ready"},
-{name:"Deal Teardown Library",bucket:"Deals",use:"Break deals into thesis, valuation, risks, returns and mistakes.",api:"NEWS_API_KEY + AI_API_KEY",output:"Deal memo teardown",mode:"key-ready"},
-{name:"Excel Muscle Memory",bucket:"Modeling",use:"Timed shortcut drills for analyst speed.",api:"No key needed",output:"Speed score",mode:"ready"},
-{name:"Model Error Hunter",bucket:"Modeling",use:"Find circularity, bad signs, weak assumptions and broken logic.",api:"AI_API_KEY",output:"Model audit report",mode:"ready"},
-{name:"IC Memo Builder",bucket:"PE",use:"Convert rough investment thinking into IC memo format.",api:"AI_API_KEY",output:"IC memo draft",mode:"ready"},
-{name:"Would You Invest Game",bucket:"Judgment",use:"See a company snapshot, then invest/pass/reprice.",api:"AI_API_KEY",output:"Decision review",mode:"ready"},
-{name:"Live News Question Engine",bucket:"Markets",use:"Turn market news into valuation, credit and PE questions.",api:"NEWS_API_KEY / MARKET_DATA_API_KEY",output:"Daily drills",mode:"key-ready"},
-{name:"Personal Weakness Graph",bucket:"Analytics",use:"Map wrong answers into concept-level weakness.",api:"Supabase",output:"Skill graph",mode:"ready"},
-{name:"Interview Bank by Firm",bucket:"Recruiting",use:"GS, JPM, KKR, Bain, Blackstone, Avendus and Big4 style drills.",api:"AI_API_KEY",output:"Firm drill list",mode:"ready"},
-{name:"Deal Math Speed Trainer",bucket:"Mental Math",use:"EV, EBITDA, leverage, CAGR, IRR, MOIC and dilution drills.",api:"No key needed",output:"Math sprint",mode:"ready"},
-{name:"Investment Journal AI",bucket:"Thinking",use:"Rate your daily market/deal thinking like an investor.",api:"AI_API_KEY",output:"Thinking score",mode:"ready"},
-{name:"Pitchbook Simulator",bucket:"IB",use:"Build teaser, CIM, buyer list, valuation range and process timeline.",api:"AI_API_KEY",output:"Pitchbook sections",mode:"ready"},
-{name:"LBO Paper Test",bucket:"PE",use:"30-minute paper LBO with assumptions and return bridge.",api:"No key needed",output:"Paper LBO score",mode:"ready"},
-{name:"Private Credit Underwriting",bucket:"Credit",use:"DSCR, covenants, recovery, downside case and term-sheet logic.",api:"AI_API_KEY",output:"Credit memo",mode:"ready"},
-{name:"Founder Call Simulator",bucket:"Diligence",use:"AI founder answers your diligence questions and hides red flags.",api:"AI_API_KEY",output:"Diligence transcript",mode:"ready"},
-{name:"Red Flag Detector",bucket:"Diligence",use:"Scan pasted financials/filings for accounting and governance risks.",api:"FILINGS_API_KEY + AI_API_KEY",output:"Red-flag memo",mode:"key-ready"},
-{name:"Cap Table Simulator",bucket:"VC",use:"Rounds, ESOP, liquidation preference, anti-dilution and founder dilution.",api:"No key needed",output:"Dilution bridge",mode:"ready"},
-{name:"Career Path Engine",bucket:"Career",use:"Weekly roadmap from your profile to IB/PE/VC/credit.",api:"AI_API_KEY",output:"Career plan",mode:"ready"},
-{name:"Portfolio Project Tracker",bucket:"Career",use:"Track models, memos, reports and recruiter proof points.",api:"Supabase",output:"Proof dashboard",mode:"ready"},
-{name:"Real Filing Reader",bucket:"Research",use:"Turn annual reports/MCA/10-K filings into questions and diligence checklists.",api:"FILINGS_API_KEY + AI_API_KEY",output:"Filing drill",mode:"key-ready"},
-{name:"AI Mentor Personas",bucket:"Mentors",use:"Choose IB Associate, PE VP, Credit IC, VC Partner, CFO or MD style.",api:"AI_API_KEY",output:"Persona coach",mode:"ready"},
-{name:"Bad Answer Rewriter",bucket:"Communication",use:"Upgrade weak interview answers into top-1% structured answers.",api:"AI_API_KEY",output:"Better answer",mode:"ready"},
-{name:"Case Competition Mode",bucket:"Projects",use:"48-hour simulated deal case with model, memo, deck and partner questions.",api:"AI_API_KEY + Supabase",output:"Case pack",mode:"ready"},
-{name:"Daily Killer Insight",bucket:"Learning",use:"One daily finance concept, deal lesson or modeling trick.",api:"AI_API_KEY / NEWS_API_KEY",output:"Daily insight",mode:"ready"}
+const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];
+const storeKey = "capital-forge-phase-a-open-ui";
+
+const newsBank: NewsItem[] = [
+  { tag: "Markets", title: "Equities rally as rate-cut expectations return", summary: "Practice angle: connect discount rates, terminal multiples and equity duration in a 5-line market view.", time: "2h ago", tone: "green" },
+  { tag: "AI & Tech", title: "AI infrastructure spend forces new capex debates", summary: "Modeling angle: separate growth capex, maintenance capex and long-term ROIC compression risk.", time: "3h ago", tone: "blue" },
+  { tag: "Private Equity", title: "Dry powder stays high but deployment remains selective", summary: "PE angle: underwrite entry valuation, leverage capacity and value creation without relying on multiple expansion.", time: "4h ago", tone: "black" },
+  { tag: "M&A", title: "Strategic buyers keep using bolt-ons for growth", summary: "Deal angle: test synergy credibility, integration risk and whether the buyer is paying for its own execution.", time: "5h ago", tone: "red" },
+  { tag: "Credit", title: "Private credit structures tighten around downside cases", summary: "Credit angle: focus on covenants, DSCR, recovery, sponsor support and documentation protection.", time: "6h ago", tone: "black" },
+  { tag: "Macro", title: "Currency volatility changes cross-border deal math", summary: "Markets angle: translate FX movement into purchase price, debt capacity and exit return sensitivity.", time: "7h ago", tone: "blue" },
+  { tag: "VC", title: "Growth investors demand clearer unit economics", summary: "VC angle: build a rule-of-40, CAC payback and dilution bridge before debating valuation.", time: "8h ago", tone: "green" },
+  { tag: "Restructuring", title: "Maturity walls keep refinancing risk in focus", summary: "Special sits angle: locate the fulcrum security and build a recovery waterfall from enterprise value.", time: "9h ago", tone: "red" }
 ];
-const apiSlots=[["AI_API_URL","OpenAI-compatible AI endpoint"],["AI_API_KEY","Main AI reasoning key"],["AI_MODEL","Model name"],["MARKET_DATA_API_URL","Market data provider endpoint"],["MARKET_DATA_API_KEY","Market data key"],["NEWS_API_URL","Business/news provider endpoint"],["NEWS_API_KEY","News key"],["FILINGS_API_URL","SEC/MCA/filings endpoint"],["FILINGS_API_KEY","Filings key, blank for free SEC"],["NEXT_PUBLIC_SUPABASE_URL","Supabase project URL"],["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY","Supabase browser key"],["CAPITAL_FORGE_ADMIN_SECRET","Admin/import protection"]] as const;
-const roles=["Foundation","Analyst","Senior Analyst","Associate","VP","Director","MD / Partner / IC"];
-const types:QType[]=["mcq","numerical","direct","formula","interview","judgment","model-review"];
-const money=(n:number)=>`₹${n} Cr`; const rnd=(n:number)=>Math.round(n*100)/100;
 
-function build(cat:string,idx:number):Question{const difficulty=idx%7+1,type=types[(idx+cat.length)%types.length],rev=100+(idx*37)%900,margin=10+idx%20,ebitda=rnd(rev*margin/100),debt=50+(idx*17)%500,cash=10+(idx*11)%120,capex=10+idx%80,concept=["FCFF","Enterprise Value","Debt Capacity","Working Capital","Valuation Judgment","Interview Communication","Model Audit"][idx%7],base={id:`${cat.replace(/[^A-Z]/g,"").slice(0,4).padEnd(4,"X")}-${String(idx).padStart(4,"0")}`,category:cat,concept,difficulty,role:roles[difficulty-1],xp:[10,20,30,40,75,110,150][difficulty-1],hints:["Start with the business driver, not the formula.","Separate accounting profit from cash flow.","Check whether the answer makes economic sense."]};const prompt=`${cat} case ${idx}: Revenue is ${money(rev)}, EBITDA margin is ${margin}%, debt is ${money(debt)}, cash is ${money(cash)}, capex is ${money(capex)}, tax rate is 25%.`;if(type==="numerical"){const ans=debt-cash;return{...base,type,title:"Calculate net debt",prompt:`${prompt}\n\nCalculate net debt.`,numeric:ans,solution:`Net debt = Debt − Cash = ${debt} − ${cash} = ${ans} Cr.`,why:"Net debt is the debt claim remaining after available cash is netted off."}}if(type==="mcq")return{...base,type,title:"Identify the correct FCFF formula",prompt:"Which formula best represents FCFF starting from EBIT?",options:["EBIT × (1−T) + D&A − Capex − ΔNWC","Net Income + Dividends","EBITDA − Interest Expense","Revenue − COGS"],correct:"EBIT × (1−T) + D&A − Capex − ΔNWC",solution:"FCFF from EBIT is EBIT × (1−T) + D&A − Capex − ΔNWC.",why:"This measures unlevered cash flow available to all capital providers."};if(type==="formula")return{...base,type,title:"Reconstruct Enterprise Value",prompt:"Fill the formula: Enterprise Value = Equity Value + ____ + Preferred Equity + Minority Interest − ____.",correct:"debt cash",solution:"Enterprise Value = Equity Value + Debt + Preferred Equity + Minority Interest − Cash.",why:"Enterprise value bridges equity value to operating business value."};if(type==="model-review")return{...base,type,title:"Audit the model logic",prompt:`An analyst values a business using EBITDA of ${money(ebitda)} but ignores ${money(capex)} of maintenance capex and rising working capital. What is wrong?`,solution:"The model treats EBITDA as cash flow. Maintenance capex, taxes and working-capital needs reduce distributable cash flow and can lower valuation and debt capacity.",why:"Model review is about economics and structure, not only formulas.",rubric:["cash","capex","working","valuation"]};if(type==="interview")return{...base,type,title:"Interview answer under pressure",prompt:`Explain in 60 seconds why a company with ${money(ebitda)} EBITDA can still be a weak LBO candidate.`,solution:"Mention valuation, cash conversion, capex, working capital, cyclicality, leverage capacity, exit risk and management execution. EBITDA alone does not determine buyout quality.",why:"Senior answers use structure: conclusion → drivers → risks → what changes the view.",rubric:["cash","leverage","exit","risk"]};if(type==="judgment")return{...base,type,title:"Invest or pass",prompt:`${prompt}\n\nThe business is growing, but valuation is expensive and leverage would exceed 4.5x. Would you invest, pass, or restructure the deal?`,solution:"A strong answer is conditional: underwrite growth durability, cash conversion, downside leverage, entry valuation, exit multiple risk and structures like seller financing, rollover or earnout.",why:"Investment judgment is about risk-adjusted asymmetry and opportunity cost.",rubric:["downside","valuation","structure","cash"]};return{...base,type:"direct",title:"Direct recall",prompt:`Define ${concept} and give one real-world use in ${cat}.`,solution:`${concept} should be defined accurately and linked to a practical investment, modeling or financing decision.`,why:"Direct recall matters when tied to professional use."}}
-function makeQuestions(){return cats.flatMap(([c,t])=>Array.from({length:t},(_,i)=>build(c,i+1)))}
-function grade(q:Question,answer:string):Grade{const a=answer.trim().toLowerCase();if(!a)return{score:0,correct:false,feedback:"No answer submitted.",stronger:q.solution};if(q.type==="mcq"){const ok=a===String(q.correct).toLowerCase();return{score:ok?10:0,correct:ok,feedback:ok?"Correct.":"Incorrect. Review the formula logic.",stronger:q.solution}}if(q.type==="numerical"&&typeof q.numeric==="number"){const n=Number(a.replace(/[^0-9.-]/g,""));const ok=Number.isFinite(n)&&Math.abs(n-q.numeric)<=.1;return{score:ok?10:Math.max(0,6-Math.abs(n-q.numeric)),correct:ok,feedback:ok?"Correct calculation.":`Expected approximately ${q.numeric}.`,stronger:q.solution}}const kws=[...(q.rubric??[]),q.concept,q.category].map(x=>x.toLowerCase().split(" ")[0]);const hits=kws.filter(k=>a.includes(k)).length;const score=Math.min(10,Math.max(3,hits*2+(answer.length>150?2:0)));return{score,correct:score>=7,feedback:score>=7?"Directionally strong. Tighten it like an IC memo.":"Partially developed. Add economic drivers and risk logic.",stronger:q.solution}}
+const caseBank: ShortCase[] = [
+  { category: "Financial Modeling", title: "Build a 3-statement model check", summary: "Find the missing link between revenue growth, working capital, debt schedule and cash balance.", difficulty: "Medium", minutes: 45 },
+  { category: "Valuation", title: "DCF terminal value stress test", summary: "Estimate intrinsic value and explain which assumption drives the largest valuation swing.", difficulty: "Medium", minutes: 40 },
+  { category: "M&A", title: "Accretion / dilution quick case", summary: "Evaluate a buy-side acquisition using P/E, financing mix, synergies and integration risk.", difficulty: "Hard", minutes: 60 },
+  { category: "Private Equity", title: "Paper LBO return bridge", summary: "Underwrite entry multiple, leverage, EBITDA growth, debt paydown and exit multiple sensitivity.", difficulty: "Hard", minutes: 50 },
+  { category: "Private Credit", title: "Covenant and downside DSCR case", summary: "Structure a credit memo with base case, stress case, collateral and recovery logic.", difficulty: "Hard", minutes: 45 },
+  { category: "VC", title: "Series B dilution and preference case", summary: "Model founder dilution, ESOP refresh, liquidation preference and exit outcomes.", difficulty: "Medium", minutes: 35 },
+  { category: "Markets", title: "Rates up, multiples down", summary: "Translate a 75 bps rate move into valuation, cost of capital and portfolio implications.", difficulty: "Medium", minutes: 30 },
+  { category: "Interview", title: "MD pressure answer drill", summary: "Answer a technical finance question with conclusion, formula, intuition and caveat.", difficulty: "MD", minutes: 20 }
+];
 
-export default function Page(){
-const qs=useMemo(()=>makeQuestions(),[]);const [store,setStore]=useState<Store>(initial);const [tab,setTab]=useState("Dashboard");const [advanced,setAdvanced]=useState(false);const [cat,setCat]=useState("All");const [diff,setDiff]=useState("All");const [idx,setIdx]=useState(0);const [answer,setAnswer]=useState("");const [last,setLast]=useState<Grade|null>(null);const [confidence,setConfidence]=useState(3);const [coach,setCoach]=useState("");const [coachResult,setCoachResult]=useState("");const [labInput,setLabInput]=useState("");const [selectedFeature,setSelectedFeature]=useState(features[0].name);const [lab,setLab]=useState<LabResult|null>(null);const [market,setMarket]=useState<string[]>([]);const [importText,setImportText]=useState("");
-useEffect(()=>{try{const raw=localStorage.getItem(storeKey);if(raw)setStore({...initial,...JSON.parse(raw)})}catch{}},[]);
-useEffect(()=>{try{localStorage.setItem(storeKey,JSON.stringify(store))}catch{}},[store]);
-const all=[...qs,...store.custom];const filtered=all.filter(q=>(cat==="All"||q.category===cat)&&(diff==="All"||q.difficulty===Number(diff)));const q=filtered[idx%Math.max(1,filtered.length)]??all[0];const accuracy=store.attempts.length?Math.round(store.attempts.filter(a=>a.correct).length/store.attempts.length*100):0;const weak=[...new Set(store.attempts.filter(a=>!a.correct).map(a=>a.category))].slice(0,5);const activeFeature=features.find(f=>f.name===selectedFeature)??features[0];
-function submit(){const g=grade(q,answer);setLast(g);const a:Attempt={id:crypto.randomUUID(),qid:q.id,category:q.category,concept:q.concept,score:g.score,correct:g.correct,confidence,answer,at:new Date().toISOString()};setStore(s=>({...s,attempts:[a,...s.attempts].slice(0,500),xp:s.xp+(g.correct?q.xp:Math.round(q.xp/3))}));}
-function next(){setIdx(i=>(i+1)%Math.max(1,filtered.length));setAnswer("");setLast(null);}
-function bookmark(){setStore(s=>({...s,bookmarks:s.bookmarks.includes(q.id)?s.bookmarks.filter(x=>x!==q.id):[q.id,...s.bookmarks]}));}
-async function askCoach(seed?:string){setCoachResult("Thinking...");try{const res=await fetch("/api/coach",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:q.prompt,answer:seed||answer||coach,mode:"interview-coach",context:{category:q.category,concept:q.concept}})});const data=await res.json();setCoachResult([data.feedback,data.strongerAnswer,data.followUp].filter(Boolean).join("\n\n"));}catch{setCoachResult("Coach fallback: structure your answer as conclusion, drivers, risks, numbers, and final judgment.");}}
-async function runLab(){setLab({output:"Running advanced module..."});try{const res=await fetch("/api/lab",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({module:selectedFeature,input:labInput})});setLab(await res.json());}catch{setLab({module:selectedFeature,output:`${selectedFeature} fallback drill: ${activeFeature.use}\n\nTask: ${labInput||"Paste a company, project, answer or deal situation to generate the drill."}`,nextStep:"Add API keys for live AI output."});}}
-async function loadMarket(){try{const res=await fetch("/api/market");const data=await res.json();setMarket((data.events||[]).map((e:{title:string;question:string;task:string})=>`${e.title}: ${e.question} ${e.task}`));}catch{setMarket(["Fallback market drill: A company misses EBITDA guidance but revenue grows. Rebuild the investment thesis and valuation impact."]);}}
-function importQuestions(){const lines=importText.split("\n").filter(Boolean);const custom=lines.slice(0,200).map((line,i)=>({...build("Custom Import",i+1),id:`CUSTOM-${Date.now()}-${i}`,title:"Imported question",prompt:line,solution:"Use AI Coach or self-review to build a stronger answer."}));setStore(s=>({...s,custom:[...custom,...s.custom]}));setImportText("");}
-return <main className="shell">
-<section className="hero"><div><p className="eyebrow">Capital Forge · Core Training First</p><h1>Become dangerous in PE, IB, VC, credit, markets and modeling.</h1><p className="sub">The original practice engine is now the default. Advanced AI features are optional and separate.</p><div className="actions"><button onClick={()=>{setAdvanced(false);setTab("Practice")}}>Start Practice</button><button className="secondary" onClick={()=>{setAdvanced(true);setTab("AI World")}}>Open Advanced AI World</button></div></div><div className="scorecard"><b>Core Progress</b><strong>{store.xp.toLocaleString()} XP</strong><span>{store.attempts.length} attempts · {accuracy}% accuracy · {all.length.toLocaleString()} questions</span></div></section>
-<nav className="tabs">{(advanced?[...coreTabs,...advancedTabs]:coreTabs).map(t=><button key={t} className={tab===t?"active":""} onClick={()=>setTab(t)}>{t}</button>)}<button className="mode" onClick={()=>setAdvanced(a=>!a)}>{advanced?"Hide Advanced":"Advanced"}</button></nav>
-{!advanced&&<div className="notice"><b>Original idea is primary:</b> Dashboard, Practice, formulas, Excel shortcuts, interview, deal simulator and IC mode. Advanced tools stay hidden until you open them.</div>}
-{tab==="Dashboard"&&<section className="grid"><div className="panel wide"><h2>Training command center</h2><div className="kpis"><b>{all.length.toLocaleString()} questions</b><b>{store.bookmarks.length} bookmarks</b><b>{weak.length?weak.join(", "):"No weak area yet"}</b></div><p>Recommended path: Practice → Excel Vault → Formula Vault → Interview → Deal Simulator → IC Mode. Use Advanced only after building base muscle.</p></div>{cats.map(([c,n,r])=><button className="tile" key={c} onClick={()=>{setCat(c);setTab("Practice");setIdx(0)}}><b>{c}</b><span>{n} drills · {r}</span></button>)}</section>}
-{tab==="Practice"&&<section className="grid"><div className="panel wide"><div className="row"><select value={cat} onChange={e=>{setCat(e.target.value);setIdx(0)}}><option>All</option>{cats.map(([c])=><option key={c}>{c}</option>)}</select><select value={diff} onChange={e=>{setDiff(e.target.value);setIdx(0)}}><option>All</option>{[1,2,3,4,5,6,7].map(d=><option key={d}>{d}</option>)}</select><button onClick={next}>Next Question</button><button className="secondary" onClick={bookmark}>{store.bookmarks.includes(q.id)?"Bookmarked":"Bookmark"}</button></div><p className="eyebrow">{q.category} · {q.concept} · Difficulty {q.difficulty} · {q.role}</p><h2>{q.title}</h2><pre>{q.prompt}</pre>{q.options?.map(o=><button className="option" key={o} onClick={()=>setAnswer(o)}>{o}</button>)}<textarea value={answer} onChange={e=>setAnswer(e.target.value)} placeholder="Type your answer here..."/><div className="row"><label>Confidence {confidence}/5 <input type="range" min="1" max="5" value={confidence} onChange={e=>setConfidence(Number(e.target.value))}/></label><button onClick={submit}>Submit</button><button className="secondary" onClick={()=>askCoach()}>Ask Coach</button></div>{last&&<div className="result"><b>Score {last.score}/10</b><p>{last.feedback}</p><p>{last.stronger}</p><small>{q.why}</small></div>}</div><div className="panel"><h3>Hints</h3>{q.hints.map(h=><p key={h}>• {h}</p>)}<h3>Recent</h3>{store.attempts.slice(0,5).map(a=><p key={a.id}>{a.category}: {a.score}/10</p>)}</div></section>}
-{tab==="Formula Vault"&&<section className="grid">{formulas.map(f=><div className="panel" key={f[0]}><h3>{f[0]}</h3><code>{f[1]}</code><p>{f[2]}</p></div>)}</section>}
-{tab==="Excel Vault"&&<section className="panel wide"><h2>Excel muscle memory</h2>{excel.map(x=><div className="list" key={x[0]}><b>{x[0]}</b><span>Windows: {x[1]}</span><span>Mac: {x[2]}</span></div>)}</section>}
-{tab==="Interview"&&<section className="panel wide"><h2>Interview room</h2><p>Use Practice filters for interview questions or send any answer to AI Coach.</p><textarea value={coach} onChange={e=>setCoach(e.target.value)} placeholder="Paste your interview answer..."/><button onClick={()=>askCoach(coach)}>Review answer</button>{coachResult&&<pre>{coachResult}</pre>}</section>}
-{tab==="Deal Simulator"&&<section className="grid">{["M&A teaser review","Buyer list build","Valuation range","Debt capacity","Synergy thesis","Deal red flags"].map(x=><button className="tile" key={x} onClick={()=>{setCat("M&A");setTab("Practice")}}><b>{x}</b><span>Click to practice related M&A questions</span></button>)}</section>}
-{tab==="IC Mode"&&<section className="panel wide"><h2>IC Mode</h2><p>Answer every case as: recommendation, thesis, numbers, risks, downside protection, diligence asks, decision.</p><button onClick={()=>{setCat("Investment Judgment / IC");setTab("Practice")}}>Open IC drills</button></section>}
-{tab==="Journals"&&<section className="panel wide"><h2>Investment journal</h2><textarea placeholder="Write today’s market/deal thought..." onKeyDown={e=>{if(e.key==="Enter"&&e.currentTarget.value.trim()){const v=e.currentTarget.value;setStore(s=>({...s,journal:[v,...s.journal]}));e.currentTarget.value=""}}}/>{store.journal.map((j,i)=><p key={i}>{j}</p>)}</section>}
-{tab==="Admin"&&<section className="panel wide"><h2>Import questions</h2><p>Paste one question per line. This keeps your original 1000+ database expandable.</p><textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder="Paste custom questions here..."/><button onClick={importQuestions}>Import</button><button className="secondary" onClick={()=>navigator.clipboard.writeText(JSON.stringify(store,null,2))}>Copy Backup JSON</button></section>}
-{tab==="AI World"&&<section className="grid"><div className="panel wide"><h2>Advanced AI World</h2><p>This is optional. Use it after core practice, or when you want recruiter, MD, deal, filing, pitchbook or case-competition style drills.</p><div className="row"><select value={selectedFeature} onChange={e=>setSelectedFeature(e.target.value)}>{features.map(f=><option key={f.name}>{f.name}</option>)}</select><button onClick={runLab}>Run Advanced Module</button></div><textarea value={labInput} onChange={e=>setLabInput(e.target.value)} placeholder="Paste company, project, answer, deal, filing extract, or career situation..."/>{lab&&<pre>{lab.output}\n\nNext: {lab.nextStep}</pre>}</div>{features.map(f=><button className="tile" key={f.name} onClick={()=>{setSelectedFeature(f.name);setLabInput(`${f.name} drill: ${f.use}`)}}><b>{f.name}</b><span>{f.bucket} · {f.mode}</span><small>{f.use}</small></button>)}</section>}
-{tab==="AI Coach"&&<section className="panel wide"><h2>AI Coach</h2><textarea value={coach} onChange={e=>setCoach(e.target.value)} placeholder="Paste any answer for institutional review..."/><button onClick={()=>askCoach(coach)}>Get IC-style feedback</button>{coachResult&&<pre>{coachResult}</pre>}</section>}
-{tab==="Live Markets"&&<section className="panel wide"><h2>Live Markets</h2><button onClick={loadMarket}>Load market challenges</button>{market.map((m,i)=><p key={i}>{m}</p>)}</section>}
-{tab==="API Keys"&&<section className="grid">{apiSlots.map(([k,v])=><div className="panel" key={k}><h3>{k}</h3><p>{v}</p><code>Set in Vercel Environment Variables</code></div>)}</section>}
-{tab==="Supabase"&&<section className="panel wide"><h2>Supabase</h2><p>Auth/cloud sync is key-ready. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in Vercel when your project is ready.</p></section>}
-</main>;
+const modules: Module[] = [
+  { name: "Recruiter Mode", bucket: "Career", description: "Score projects like a PE/IB recruiter and identify proof gaps.", required: "AI_API_KEY", demo: true },
+  { name: "MD Pressure Room", bucket: "Interview", description: "Senior-style follow-up questions with sharp interruptions.", required: "AI_API_KEY", demo: true },
+  { name: "Deal Teardown Library", bucket: "Deals", description: "Convert deals into thesis, valuation, risks and return drivers.", required: "NEWS + AI", demo: true },
+  { name: "Excel Muscle Memory", bucket: "Modeling", description: "Timed shortcut drills for analyst speed and accuracy.", required: "No key", demo: false },
+  { name: "Model Error Hunter", bucket: "Modeling", description: "Find formula breaks, sign errors and assumption weaknesses.", required: "AI_API_KEY", demo: true },
+  { name: "IC Memo Builder", bucket: "PE", description: "Turn rough investment thinking into IC-ready memo sections.", required: "AI_API_KEY", demo: true },
+  { name: "Would You Invest Game", bucket: "Judgment", description: "Invest, pass or reprice based on incomplete business facts.", required: "AI_API_KEY", demo: true },
+  { name: "Live News Question Engine", bucket: "Markets", description: "Turn current market news into valuation and credit drills.", required: "NEWS_API_KEY", demo: true },
+  { name: "Personal Weakness Graph", bucket: "Analytics", description: "Map wrong answers into topic-level improvement areas.", required: "Supabase", demo: false },
+  { name: "Interview Bank by Firm", bucket: "Recruiting", description: "Firm-style technical questions for IB, PE, VC and credit.", required: "AI_API_KEY", demo: true },
+  { name: "Deal Math Speed Trainer", bucket: "Mental Math", description: "EV, EBITDA, leverage, CAGR, IRR and MOIC sprints.", required: "No key", demo: false },
+  { name: "Investment Journal AI", bucket: "Thinking", description: "Rate daily market and deal thinking like an investor.", required: "AI_API_KEY", demo: true },
+  { name: "Pitchbook Simulator", bucket: "IB", description: "Create teaser, CIM, valuation and buyer-list sections.", required: "AI_API_KEY", demo: true },
+  { name: "LBO Paper Test", bucket: "PE", description: "30-minute paper LBO with return bridge and sensitivities.", required: "No key", demo: false },
+  { name: "Private Credit Underwriting", bucket: "Credit", description: "Build DSCR, recovery, downside and term-sheet logic.", required: "AI_API_KEY", demo: true },
+  { name: "Founder Call Simulator", bucket: "Diligence", description: "Ask diligence questions and detect hidden red flags.", required: "AI_API_KEY", demo: true },
+  { name: "Red Flag Detector", bucket: "Diligence", description: "Scan financial facts for accounting and governance risk.", required: "FILINGS + AI", demo: true },
+  { name: "Cap Table Simulator", bucket: "VC", description: "Model rounds, ESOP, preference and founder dilution.", required: "No key", demo: false },
+  { name: "Career Path Engine", bucket: "Career", description: "Roadmap your profile toward IB, PE, VC or private credit.", required: "AI_API_KEY", demo: true },
+  { name: "Portfolio Project Tracker", bucket: "Career", description: "Track models, memos, reports and recruiter proof points.", required: "Supabase", demo: false },
+  { name: "Real Filing Reader", bucket: "Research", description: "Turn filings into questions and diligence checklists.", required: "FILINGS + AI", demo: true },
+  { name: "AI Mentor Personas", bucket: "Mentors", description: "Choose IB Associate, PE VP, Credit IC, VC Partner or CFO.", required: "AI_API_KEY", demo: true },
+  { name: "Bad Answer Rewriter", bucket: "Communication", description: "Upgrade weak interview answers into structured responses.", required: "AI_API_KEY", demo: true },
+  { name: "Case Competition Mode", bucket: "Projects", description: "Simulated 48-hour deal case with memo, model and deck tasks.", required: "AI + Supabase", demo: true },
+  { name: "Daily Killer Insight", bucket: "Learning", description: "One sharp finance concept, deal lesson or modeling trick.", required: "AI / News", demo: true }
+];
+
+const concepts = ["Accounting", "Corporate Finance", "Valuation", "Financial Modeling", "Excel", "Investment Banking", "M&A", "Private Equity", "VC", "Private Credit", "Markets", "Distressed", "Interviews", "Investment Judgment"];
+const difficulties: Difficulty[] = ["Easy", "Medium", "Hard", "MD"];
+
+function buildQuestions(): Question[] {
+  return Array.from({ length: 220 }, (_, i) => {
+    const category = concepts[i % concepts.length];
+    const difficulty = difficulties[i % difficulties.length];
+    const type: QuestionType = (["MCQ", "Formula", "Numerical", "Subjective", "Case", "Interview", "Model Review"] as QuestionType[])[i % 7];
+    const revenue = 80 + (i * 17) % 420;
+    const margin = 10 + (i % 18);
+    const ebitda = Math.round(revenue * margin / 100);
+    const debt = 40 + (i * 11) % 260;
+    const cash = 8 + (i * 7) % 70;
+    if (type === "MCQ") {
+      return { id: `CF-${i + 1}`, category, type, difficulty, prompt: "Which formula best represents FCFF starting from EBIT?", options: ["EBIT x (1 - Tax) + D&A - Capex - Change in NWC", "Net Income + Dividends", "EBITDA - Interest", "Revenue - COGS"], answer: "EBIT x (1 - Tax) + D&A - Capex - Change in NWC", explanation: "FCFF is unlevered cash flow available to debt and equity holders before financing decisions.", keywords: ["ebit", "tax", "capex", "nwc"] };
+    }
+    if (type === "Numerical") {
+      return { id: `CF-${i + 1}`, category, type, difficulty, prompt: `A company has debt of Rs ${debt} Cr and cash of Rs ${cash} Cr. Calculate net debt.`, answer: String(debt - cash), explanation: `Net debt = Debt - Cash = ${debt} - ${cash} = ${debt - cash} Cr.`, keywords: [String(debt - cash)] };
+    }
+    if (type === "Formula") {
+      return { id: `CF-${i + 1}`, category, type, difficulty, prompt: "Write the enterprise value bridge formula.", answer: "Equity value + debt + preferred equity + minority interest - cash", explanation: "Enterprise value converts equity value into operating business value independent of capital structure.", keywords: ["equity", "debt", "cash", "minority"] };
+    }
+    if (type === "Model Review") {
+      return { id: `CF-${i + 1}`, category, type, difficulty, prompt: `An analyst values a Rs ${ebitda} Cr EBITDA business but ignores maintenance capex and working capital. What is wrong?`, answer: "EBITDA is not free cash flow", explanation: "A strong model separates EBITDA from cash generation by including taxes, capex, working capital and financing constraints.", keywords: ["cash", "capex", "working", "tax"] };
+    }
+    if (type === "Interview") {
+      return { id: `CF-${i + 1}`, category, type, difficulty, prompt: `Explain in 60 seconds why a company with Rs ${ebitda} Cr EBITDA can still be a weak LBO candidate.`, answer: "Weak cash conversion, high capex, cyclicality, expensive entry valuation or limited exit options can break returns", explanation: "Senior interview answers should lead with conclusion, then drivers, risks and what would change the decision.", keywords: ["cash", "capex", "valuation", "exit"] };
+    }
+    if (type === "Case") {
+      return { id: `CF-${i + 1}`, category, type, difficulty, prompt: `Revenue is Rs ${revenue} Cr, EBITDA margin is ${margin}%, leverage is rising and growth is slowing. Would you invest, pass or reprice?`, answer: "conditional reprice", explanation: "The best answer is conditional: underwrite growth durability, cash conversion, leverage, downside protection and entry valuation.", keywords: ["valuation", "cash", "downside", "leverage"] };
+    }
+    return { id: `CF-${i + 1}`, category, type, difficulty, prompt: `Define ${category} in one professional sentence and give one use in IB/PE decision-making.`, answer: `${category} should be linked to valuation, risk, capital allocation or deal decision-making.`, explanation: "Definitions matter only when connected to an investment or transaction decision.", keywords: ["valuation", "risk", "deal", "decision"] };
+  });
+}
+
+function rotated<T>(items: T[], count: number, offset: number) {
+  return Array.from({ length: Math.min(count, items.length) }, (_, i) => items[(i + offset) % items.length]);
+}
+
+function evaluateAnswer(q: Question, submitted: string, selected: string) {
+  const raw = q.type === "MCQ" ? selected : submitted;
+  const answer = raw.trim().toLowerCase();
+  if (!answer) return { score: 0, correct: false, text: "Write an answer first. In interviews, silence scores zero." };
+  if (q.type === "MCQ") {
+    const correct = selected === q.answer;
+    return { score: correct ? 10 : 0, correct, text: correct ? "Correct. Now explain the intuition behind the formula." : `Not correct. Correct answer: ${q.answer}` };
+  }
+  if (q.type === "Numerical") {
+    const target = Number(q.answer);
+    const given = Number(answer.replace(/[^0-9.-]/g, ""));
+    const correct = Number.isFinite(given) && Math.abs(given - target) <= 0.1;
+    return { score: correct ? 10 : 4, correct, text: correct ? "Correct calculation." : `Expected approximately Rs ${target} Cr. ${q.explanation}` };
+  }
+  const hits = (q.keywords || []).filter((keyword) => answer.includes(keyword.toLowerCase())).length;
+  const score = Math.min(10, Math.max(3, hits * 2 + (answer.length > 140 ? 2 : 0)));
+  return { score, correct: score >= 7, text: score >= 7 ? "Good direction. Tighten it with conclusion, calculation, risk and decision impact." : `Partially developed. Stronger answer: ${q.explanation}` };
+}
+
+export default function Page() {
+  const questions = useMemo(buildQuestions, []);
+  const [tab, setTab] = useState<Tab>("Home");
+  const [query, setQuery] = useState("");
+  const [newsOffset, setNewsOffset] = useState(0);
+  const [caseOffset, setCaseOffset] = useState(0);
+  const [category, setCategory] = useState("All");
+  const [difficulty, setDifficulty] = useState("All");
+  const [qIndex, setQIndex] = useState(0);
+  const [answer, setAnswer] = useState("");
+  const [selected, setSelected] = useState("");
+  const [confidence, setConfidence] = useState(60);
+  const [result, setResult] = useState<{ score: number; correct: boolean; text: string } | null>(null);
+  const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [attempts, setAttempts] = useState<Attempt[]>([]);
+  const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
+  const [activeModule, setActiveModule] = useState<Module>(modules[0]);
+  const [moduleInput, setModuleInput] = useState("Review my answer like a PE associate: EBITDA is high so the deal is good.");
+  const [moduleOutput, setModuleOutput] = useState("Launch a module to see the output workspace here.");
+  const [labLoading, setLabLoading] = useState(false);
+  const [interviewMode, setInterviewMode] = useState("Private Equity");
+  const [interviewQuestion, setInterviewQuestion] = useState("Walk me through how you would evaluate a founder-led L&D acquisition target.");
+  const [interviewAnswer, setInterviewAnswer] = useState("");
+  const [interviewScore, setInterviewScore] = useState("Start the mock and submit an answer to get feedback.");
+  const [feedbackNote, setFeedbackNote] = useState("");
+  const [notes, setNotes] = useState<string[]>([]);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [apiPrompt, setApiPrompt] = useState("Give me one hard private equity interview question on LBO downside cases.");
+  const [apiOutput, setApiOutput] = useState("API output will appear here after you test a connected or demo provider.");
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) {
+        const saved = JSON.parse(raw) as { attempts?: Attempt[]; bookmarks?: string[]; notes?: string[] };
+        setAttempts(saved.attempts || []);
+        setBookmarks(saved.bookmarks || []);
+        setNotes(saved.notes || []);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(storeKey, JSON.stringify({ attempts, bookmarks, notes })); } catch {}
+  }, [attempts, bookmarks, notes]);
+
+  async function refreshHealth() {
+    try {
+      const response = await fetch("/api/health", { cache: "no-store" });
+      const data = await response.json() as HealthResponse;
+      setHealth(data);
+    } catch {
+      setHealth({ status: "unavailable", keyStatus: {} });
+    }
+  }
+
+  useEffect(() => { void refreshHealth(); }, []);
+
+  const visibleNews = useMemo(() => rotated(newsBank, 5, newsOffset), [newsOffset]);
+  const visibleCases = useMemo(() => rotated(caseBank, 4, caseOffset), [caseOffset]);
+  const categories = ["All", ...Array.from(new Set(questions.map((q) => q.category)))];
+  const filteredQuestions = questions.filter((q) => (category === "All" || q.category === category) && (difficulty === "All" || q.difficulty === difficulty) && (`${q.category} ${q.type} ${q.prompt}`.toLowerCase().includes(query.toLowerCase()) || !query));
+  const currentQuestion = filteredQuestions[qIndex % Math.max(filteredQuestions.length, 1)] || questions[0];
+  const accuracy = attempts.length ? Math.round((attempts.filter((a) => a.score >= 7).length / attempts.length) * 100) : 84;
+  const xp = attempts.reduce((sum, item) => sum + item.score * 10, 1240);
+  const connectedCount = Object.values(health?.keyStatus || {}).filter(Boolean).length;
+
+  function submitPractice() {
+    const grade = evaluateAnswer(currentQuestion, answer, selected);
+    setResult(grade);
+    setAttempts((prev) => [{ id: currentQuestion.id, title: currentQuestion.prompt.slice(0, 70), score: grade.score, at: new Date().toLocaleString(), category: currentQuestion.category }, ...prev].slice(0, 30));
+  }
+
+  function nextQuestion() {
+    setQIndex((prev) => prev + 1);
+    setAnswer("");
+    setSelected("");
+    setResult(null);
+  }
+
+  function solveCase(item: ShortCase) {
+    setCategory(concepts.includes(item.category) ? item.category : "All");
+    setDifficulty(item.difficulty === "MD" ? "MD" : item.difficulty);
+    setTab("Practice");
+    setResult(null);
+  }
+
+  async function launchModule(item: Module) {
+    setActiveModule(item);
+    setLabLoading(true);
+    setModuleOutput("Generating workspace output...");
+    try {
+      const response = await fetch("/api/lab", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ module: item.name, input: moduleInput }) });
+      const data = await response.json() as { output?: string; configured?: boolean; nextStep?: string };
+      setModuleOutput(`${data.configured ? "Connected output" : "Demo/fallback output"}\n\n${data.output || "No output returned."}\n\nNext: ${data.nextStep || "Use this output inside practice or feedback."}`);
+    } catch {
+      setModuleOutput(`Demo output for ${item.name}: Start with conclusion, quantify the driver, pressure-test downside and end with a decision. This button is working even without an external AI key.`);
+    } finally {
+      setLabLoading(false);
+    }
+  }
+
+  function startInterview() {
+    const prompts: Record<string, string> = {
+      "Private Equity": "Should a sponsor buy a founder-led services company at 13x EBITDA? Walk me through your framework.",
+      "Investment Banking": "How would you pitch a sell-side process for a Rs 150 Cr enterprise value business?",
+      "Venture Capital": "How do you assess whether a fast-growing company deserves a premium valuation?",
+      "Private Credit": "How much debt would you underwrite for a cyclical business with weak cash conversion?",
+      "MD Pressure": "Your model shows 25% IRR. Why should I not trust it?"
+    };
+    setInterviewQuestion(prompts[interviewMode] || prompts["Private Equity"]);
+    setInterviewScore("Question started. Answer like this: conclusion -> framework -> numbers -> risks -> recommendation.");
+  }
+
+  function scoreInterview() {
+    const text = interviewAnswer.toLowerCase();
+    const keywords = ["valuation", "cash", "risk", "downside", "growth", "leverage", "exit"].filter((word) => text.includes(word)).length;
+    const score = Math.min(10, Math.max(4, keywords + (interviewAnswer.length > 180 ? 3 : 1)));
+    setInterviewScore(`Score: ${score}/10. ${score >= 7 ? "Strong structure. Add sharper numbers and one killer caveat." : "Needs more banker/PE structure. Add valuation, cash conversion, downside and what changes your view."}`);
+  }
+
+  async function testApi() {
+    setApiOutput("Testing API/lab route...");
+    try {
+      const response = await fetch("/api/lab", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ module: "API Test Workspace", input: apiPrompt }) });
+      const data = await response.json() as { output?: string; configured?: boolean; nextStep?: string };
+      setApiOutput(`${data.configured ? "Connected" : "Safe demo"}\n\n${data.output || "No response body."}\n\n${data.nextStep || "Add API keys in Vercel to unlock real provider output."}`);
+    } catch {
+      setApiOutput("The route could not be reached from the browser. Check deployment and /api/lab.");
+    }
+  }
+
+  function addNote() {
+    if (!feedbackNote.trim()) return;
+    setNotes((prev) => [feedbackNote.trim(), ...prev].slice(0, 20));
+    setFeedbackNote("");
+  }
+
+  return (
+    <main className="appShell">
+      <aside className="sidebar">
+        <div className="brandMark"><div className="logo">CF</div><div><strong>Capital Forge</strong><span>Finance training OS</span></div></div>
+        <nav className="navList">
+          {tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}
+        </nav>
+        <div className="upgradeCard"><strong>Phase A Active</strong><p>Open app, no auth gate. White SaaS UI with working tabs and demo fallbacks.</p><button onClick={() => setTab("API")}>Check APIs</button></div>
+      </aside>
+
+      <section className="mainArea">
+        <header className="topbar">
+          <div className="searchBox"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search topics, cases, models, interviews..." /></div>
+          <div className="profileCluster"><button onClick={() => setTab("Advanced")}>✦ AI Workspace</button><button onClick={() => setTab("Dashboard")}>🏆</button><div className="avatar">DC</div><div><strong>Deepak</strong><span>Keep forging</span></div></div>
+        </header>
+
+        {tab === "Home" && <section className="pageGrid">
+          <div className="heroCard span8"><div><p className="eyebrow">AI-powered learning. Real-world edge.</p><h1>Welcome back, Deepak! 👋</h1><p>Practice smarter across PE, IB, VC, private credit, modeling and capital markets. Every button here is wired to a useful action or fallback.</p><div className="miniStats"><div><span>Accuracy</span><strong>{accuracy}%</strong></div><div><span>Questions Solved</span><strong>{attempts.length || 1248}</strong></div><div><span>XP</span><strong>{xp}</strong></div></div></div><div className="aiCube"><span>AI</span><small>Decision engine</small></div></div>
+          <div className="panel span4 progressPanel"><div className="ring">{accuracy}%</div><h3>Your Progress</h3><p>Practice readiness is strong. Push more market analysis and MD-style judgment cases.</p><button onClick={() => setTab("Dashboard")}>View Dashboard →</button></div>
+
+          <div className="panel span8"><div className="sectionHead"><div><h2><span className="redDot" /> Live News & Updates</h2><p>Demo-curated until a news API is connected. Refresh rotates new finance angles.</p></div><button onClick={() => setNewsOffset((prev) => prev + 1)}>Refresh</button></div><div className="newsGrid">{visibleNews.map((item) => <article key={item.title} className="newsCard"><div className={`thumb ${item.tone}`}>{item.tag.slice(0, 2)}</div><div className="cardMeta"><span className={`tag ${item.tone}`}>{item.tag}</span><small>{item.time}</small></div><h3>{item.title}</h3><p>{item.summary}</p><button onClick={() => setSelectedNews(item)}>Read More</button></article>)}</div>{selectedNews && <div className="inlineInsight"><strong>{selectedNews.title}</strong><p>{selectedNews.summary}</p><button onClick={() => setSelectedNews(null)}>Close</button></div>}</div>
+          <div className="panel span4"><h2>AI Insights <span className="newBadge">New</span></h2><p>You perform best in valuation and modeling. Add more market judgment and private credit cases to balance readiness.</p><button onClick={() => setTab("Feedback")}>View Insights →</button><div className="recommend"><strong>Recommended</strong><button onClick={() => setTab("Practice")}>Complete 5 hard questions</button><button onClick={() => setTab("Interview Room")}>Book mock interview</button><button onClick={() => setTab("Advanced")}>Try Model Error Hunter</button></div></div>
+
+          <div className="panel span8"><div className="sectionHead"><div><h2>Featured Short Cases</h2><p>Real-world scenario cards that change on refresh.</p></div><button onClick={() => setCaseOffset((prev) => prev + 1)}>Refresh Cases</button></div><div className="caseGrid">{visibleCases.map((item, index) => <article key={item.title} className="caseCard"><div><span>Case {index + 1}</span><b>{item.category}</b></div><h3>{item.title}</h3><p>{item.summary}</p><small>{item.difficulty} • ~{item.minutes} min</small><button onClick={() => solveCase(item)}>Solve Now →</button></article>)}</div></div>
+          <div className="panel span4"><h2>Quick Actions</h2><div className="quickActions"><button onClick={() => setTab("Practice")}>▶ Start Practice</button><button onClick={() => setTab("Advanced")}>▥ Advanced</button><button onClick={() => setTab("Interview Room")}>🎥 Interview</button><button onClick={() => setTab("Feedback")}>✍ Save Note</button></div></div>
+        </section>}
+
+        {tab === "Practice" && <section className="pageGrid"><div className="panel span4"><h2>Practice Filters</h2><label>Category<select value={category} onChange={(event) => { setCategory(event.target.value); setQIndex(0); }}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>Difficulty<select value={difficulty} onChange={(event) => { setDifficulty(event.target.value); setQIndex(0); }}><option>All</option>{difficulties.map((item) => <option key={item}>{item}</option>)}</select></label><div className="metricStack"><div><span>Available</span><strong>{filteredQuestions.length}</strong></div><div><span>Bookmarked</span><strong>{bookmarks.length}</strong></div><div><span>Confidence</span><strong>{confidence}%</strong></div></div></div><div className="panel span8 questionPanel"><div className="cardMeta"><span className="tag blue">{currentQuestion.category}</span><span className="tag black">{currentQuestion.type}</span><span className="tag red">{currentQuestion.difficulty}</span></div><h2>{currentQuestion.prompt}</h2>{currentQuestion.options && <div className="optionList">{currentQuestion.options.map((option) => <button key={option} className={selected === option ? "selected" : ""} onClick={() => setSelected(option)}>{option}</button>)}</div>}<textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Write your answer like an analyst: conclusion → formula/driver → risk → decision impact" /><label>Confidence<input type="range" min="0" max="100" value={confidence} onChange={(event) => setConfidence(Number(event.target.value))} /></label><div className="buttonRow"><button onClick={submitPractice}>Submit Answer</button><button onClick={() => setResult({ score: 0, correct: false, text: currentQuestion.explanation })}>Show Hint / Explanation</button><button onClick={() => setBookmarks((prev) => prev.includes(currentQuestion.id) ? prev.filter((id) => id !== currentQuestion.id) : [currentQuestion.id, ...prev])}>{bookmarks.includes(currentQuestion.id) ? "Bookmarked" : "Bookmark"}</button><button onClick={nextQuestion}>Next Question</button></div>{result && <div className="resultBox"><strong>{result.correct ? "Strong" : "Review"} • {result.score}/10</strong><p>{result.text}</p><p>{currentQuestion.explanation}</p></div>}</div></section>}
+
+        {tab === "Advanced" && <section className="pageGrid"><div className="panel span12"><div className="sectionHead"><div><h2>Advanced AI Modules</h2><p>25 premium workspaces. Connected APIs unlock live output; otherwise demo fallback still works.</p></div><button onClick={() => void launchModule(activeModule)} disabled={labLoading}>{labLoading ? "Working..." : "Regenerate Output"}</button></div><textarea value={moduleInput} onChange={(event) => setModuleInput(event.target.value)} placeholder="Paste a deal thought, interview answer, model concern or memo paragraph..." /></div><div className="moduleGrid span8">{modules.map((item) => <article key={item.name} className={activeModule.name === item.name ? "moduleCard selectedModule" : "moduleCard"}><div className="cardMeta"><span className="tag blue">{item.bucket}</span><span className={item.demo ? "tag red" : "tag green"}>{item.required}</span></div><h3>{item.name}</h3><p>{item.description}</p><button onClick={() => void launchModule(item)}>Launch</button></article>)}</div><div className="panel span4 stickyPanel"><h2>{activeModule.name}</h2><pre>{moduleOutput}</pre></div></section>}
+
+        {tab === "Dashboard" && <section className="pageGrid"><div className="panel span3 stat"><span>Total XP</span><strong>{xp}</strong></div><div className="panel span3 stat"><span>Accuracy</span><strong>{accuracy}%</strong></div><div className="panel span3 stat"><span>Attempts</span><strong>{attempts.length}</strong></div><div className="panel span3 stat"><span>API Connected</span><strong>{connectedCount}</strong></div><div className="panel span8"><h2>Skill Readiness</h2>{concepts.slice(0, 9).map((item, index) => <div className="bar" key={item}><div><span>{item}</span><b>{Math.max(48, Math.min(96, accuracy - index * 3 + 8))}%</b></div><i><em style={{ width: `${Math.max(48, Math.min(96, accuracy - index * 3 + 8))}%` }} /></i></div>)}</div><div className="panel span4"><h2>Recent Attempts</h2>{attempts.length === 0 ? <p>No attempts yet. Start practice to build analytics.</p> : attempts.slice(0, 8).map((item) => <div className="attempt" key={`${item.id}-${item.at}`}><strong>{item.category}</strong><span>{item.score}/10 • {item.at}</span></div>)}</div></section>}
+
+        {tab === "Feedback" && <section className="pageGrid"><div className="panel span7"><h2>Feedback & Mistake Journal</h2><textarea value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} placeholder="Write what you got wrong, what you learned, or paste AI feedback..." /><button onClick={addNote}>Save Note</button><div className="notesList">{notes.length === 0 ? <p>No notes yet.</p> : notes.map((item, index) => <article key={`${item}-${index}`}><span>Note {index + 1}</span><p>{item}</p></article>)}</div></div><div className="panel span5"><h2>Improvement Plan</h2><p>1. Redo bookmarked concepts.</p><p>2. Convert every wrong answer into one formula, one intuition and one interview line.</p><p>3. Push more hard and MD-level cases every week.</p><button onClick={() => setTab("Practice")}>Retry Questions</button></div></section>}
+
+        {tab === "Interview Room" && <section className="pageGrid"><div className="panel span4"><h2>Mock Setup</h2><label>Interview Type<select value={interviewMode} onChange={(event) => setInterviewMode(event.target.value)}>{["Private Equity", "Investment Banking", "Venture Capital", "Private Credit", "MD Pressure"].map((item) => <option key={item}>{item}</option>)}</select></label><button onClick={startInterview}>Start Mock</button><p className="muted">This room is open now. AI key later upgrades it into real adaptive follow-ups.</p></div><div className="panel span8"><h2>{interviewQuestion}</h2><textarea value={interviewAnswer} onChange={(event) => setInterviewAnswer(event.target.value)} placeholder="Answer in spoken interview style..." /><div className="buttonRow"><button onClick={scoreInterview}>Submit Interview Answer</button><button onClick={() => setInterviewAnswer("Conclusion: I would evaluate it through market quality, revenue durability, EBITDA quality, cash conversion, leverage capacity, valuation, exit route and downside protection.")}>Use Sample Structure</button></div><div className="resultBox"><strong>Feedback</strong><p>{interviewScore}</p></div></div></section>}
+
+        {tab === "API" && <section className="pageGrid"><div className="panel span12"><div className="sectionHead"><div><h2>API Control Room</h2><p>Dedicated place for integrations. The main app stays clean.</p></div><button onClick={() => void refreshHealth()}>Refresh API Status</button></div></div>{["supabaseConfigured", "aiConfigured", "marketConfigured", "newsConfigured", "filingsConfigured", "recruiterReviewConfigured", "adminSecretConfigured"].map((key) => <article key={key} className="panel span3 apiCard"><span>{key.replace("Configured", "")}</span><strong className={health?.keyStatus?.[key] ? "connected" : "notConnected"}>{health?.keyStatus?.[key] ? "Connected" : "Not Connected"}</strong><p>{key === "supabaseConfigured" ? "Cloud persistence and user state database." : "Add the relevant Vercel environment variables to activate this space."}</p></article>)}<div className="panel span7"><h2>Output Test Area</h2><textarea value={apiPrompt} onChange={(event) => setApiPrompt(event.target.value)} /><button onClick={() => void testApi()}>Test Output</button><pre>{apiOutput}</pre></div><div className="panel span5"><h2>Raw Health</h2><pre>{JSON.stringify(health, null, 2)}</pre></div></section>}
+      </section>
+    </main>
+  );
 }
