@@ -3,219 +3,351 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 
-type NavTab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room" | "API";
-type QuestionType = "MCQ" | "Subjective" | "Numerical" | "Formula" | "Model Review" | "Case" | "Interview" | "Judgment";
+type Tab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room" | "API";
+type Tone = "blue" | "red" | "green" | "purple" | "black";
 type Difficulty = "Easy" | "Medium" | "Hard" | "MD";
-type Tone = "blue" | "red" | "green" | "black";
-type Question = { id: string; category: string; title: string; prompt: string; type: QuestionType; difficulty: Difficulty; xp: number; options?: string[]; correct?: string; numeric?: number; solution: string; rubric: string[] };
-type Attempt = { id: string; questionId: string; title: string; category: string; score: number; correct: boolean; answer: string; createdAt: string };
-type Store = { xp: number; attempts: Attempt[]; bookmarks: string[]; notes: string[]; launchedModules: string[]; backups: number };
-type NewsItem = { id: string; tag: string; tone: Tone; title: string; summary: string; time: string; visual: string; source?: string; url?: string };
-type ShortCase = { id: string; category: string; title: string; summary: string; difficulty: Difficulty; time: string; tone: Tone };
-type Module = { name: string; bucket: string; description: string; required: string; quickPrompt: string };
-type Health = { app?: string; phase?: string; status?: string; safeMode?: boolean; modules?: number; providers?: Record<string, string>; sources?: Record<string, string>; keyStatus?: Record<string, boolean>; generatedAt?: string; message?: string };
-type Quote = { symbol: string; name?: string; exchange?: string; currency?: string; price: number | null; change: number | null; percentChange: number | null; open?: number | null; high?: number | null; low?: number | null; previousClose?: number | null; volume?: number | null; timestamp?: string };
-type MarketEvent = { title?: string; assetClass?: string; question?: string; task?: string };
-type FundamentalsPayload = { symbol?: string; provider?: string; latest?: Record<string, unknown>; history?: Record<string, unknown>[]; practicePrompt?: string };
-type ApiResult = { configured?: boolean; source?: string; provider?: string; backup?: boolean; warning?: string; primaryWarning?: string; module?: string; output?: string; feedback?: string; strongerAnswer?: string; nextStep?: string; news?: NewsItem[]; quote?: Quote; fundamentals?: FundamentalsPayload; events?: MarketEvent[] };
-type Grade = { score: number; correct: boolean; feedback: string; stronger: string };
-type Activity = { id: string; text: string; at: string; tone: Tone };
-type ApiVault = { aiProvider: string; aiUrl: string; aiKey: string; aiModel: string; newsProvider: string; newsUrl: string; newsKey: string; marketProvider: string; marketUrl: string; marketKey: string; backupMarketKey: string; fundamentalsProvider: string; fundamentalsUrl: string; fundamentalsKey: string };
 
-const storeKey = "capital-forge-phase-e-open-app";
-const vaultKey = "capital-forge-phase-e-api-vault";
-const navTabs: NavTab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];
-const baseStore: Store = { xp: 0, attempts: [], bookmarks: [], notes: [], launchedModules: [], backups: 0 };
-const emptyVault: ApiVault = { aiProvider: "openai-compatible", aiUrl: "", aiKey: "", aiModel: "gpt-4.1-mini", newsProvider: "marketaux", newsUrl: "https://api.marketaux.com/v1/news/all", newsKey: "", marketProvider: "twelvedata", marketUrl: "https://api.twelvedata.com", marketKey: "", backupMarketKey: "", fundamentalsProvider: "fmp", fundamentalsUrl: "https://financialmodelingprep.com/api/v3", fundamentalsKey: "" };
+type NewsItem = { id: string; tag: string; tone: Tone; title: string; summary: string; time: string; visual?: string; imageUrl?: string; source?: string; url?: string };
+type Quote = { symbol?: string; name?: string; price?: number | null; change?: number | null; percentChange?: number | null; currency?: string; timestamp?: string };
+type Health = { status?: string; phase?: string; providers?: Record<string, string>; sources?: Record<string, string>; keyStatus?: Record<string, boolean> };
+type Attempt = { id: string; question: string; answer: string; score: number; correct: boolean; createdAt: string; category: string };
+type Store = { xp: number; attempts: Attempt[]; notes: string[]; streak: number };
+type Question = { id: string; category: string; difficulty: Difficulty; title: string; prompt: string; options?: string[]; correct?: string; numeric?: number; solution: string; xp: number };
+type Module = { name: string; bucket: string; description: string; prompt: string; accent: Tone };
+type CaseItem = { title: string; tag: string; difficulty: Difficulty; minutes: number; summary: string; tone: Tone };
 
-const newsBank: NewsItem[] = [
-  { id: "n1", tag: "Markets", tone: "blue", title: "Equities rally as inflation expectations cool", summary: "Practice discount-rate sensitivity, WACC movement and exit multiple compression.", time: "Demo", visual: "📈", source: "Capital Forge Demo" },
-  { id: "n2", tag: "AI & Tech", tone: "black", title: "AI capex cycle raises valuation discipline questions", summary: "Compare growth with cash conversion, capex intensity and terminal margin risk.", time: "Demo", visual: "🤖", source: "Capital Forge Demo" },
-  { id: "n3", tag: "PE / M&A", tone: "red", title: "Sponsors stay selective as dry powder meets high multiples", summary: "A useful mini-case for entry leverage, value creation and downside structure.", time: "Demo", visual: "🏦", source: "Capital Forge Demo" },
-  { id: "n4", tag: "Credit", tone: "green", title: "Private credit terms tighten for cyclical borrowers", summary: "Think through DSCR, covenants, cash sweep, pricing and downside recovery.", time: "Demo", visual: "🧾", source: "Capital Forge Demo" },
-  { id: "n5", tag: "Macro", tone: "blue", title: "Currency volatility changes imported inflation assumptions", summary: "Build a quick sensitivity around FX, gross margin and working capital.", time: "Demo", visual: "🌐", source: "Capital Forge Demo" }
+const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];
+const storeKey = "capital-forge-prepmate-live-v1";
+const baseStore: Store = { xp: 0, attempts: [], notes: [], streak: 0 };
+
+const fallbackNews: NewsItem[] = [
+  { id: "demo1", tag: "Markets", tone: "blue", title: "Live market feed loading", summary: "Marketaux is connected. Press refresh to pull the latest finance headlines.", time: "Live", visual: "📈", source: "Capital Forge" },
+  { id: "demo2", tag: "AI & Tech", tone: "purple", title: "AI capex cycle creates valuation debate", summary: "Convert this into a DCF, margin and terminal multiple mini-case.", time: "Practice", visual: "🤖", source: "Capital Forge" },
+  { id: "demo3", tag: "PE / M&A", tone: "green", title: "Sponsors stay selective on entry multiples", summary: "Use this as a paper LBO entry leverage and exit multiple drill.", time: "Practice", visual: "🏦", source: "Capital Forge" }
 ];
-const caseBank: ShortCase[] = [
-  { id: "c1", category: "Financial Modeling", title: "Build a 3-statement bridge", summary: "Forecast revenue, EBITDA, working capital, capex and debt paydown.", difficulty: "Medium", time: "45 min", tone: "blue" },
-  { id: "c2", category: "Valuation", title: "DCF valuation under rate shock", summary: "Rebuild intrinsic value after WACC rises and terminal growth compresses.", difficulty: "Medium", time: "40 min", tone: "red" },
-  { id: "c3", category: "M&A", title: "Buy-side acquisition screen", summary: "Assess synergy, accretion/dilution and integration risk before bidding.", difficulty: "Hard", time: "60 min", tone: "green" },
-  { id: "c4", category: "Private Equity", title: "Paper LBO return test", summary: "Calculate entry equity, debt paydown, exit equity value, MOIC and IRR.", difficulty: "Hard", time: "35 min", tone: "black" },
-  { id: "c5", category: "Private Credit", title: "Term sheet from credit memo", summary: "Design pricing, covenants, amortization and downside protection.", difficulty: "MD", time: "55 min", tone: "red" },
-  { id: "c6", category: "VC", title: "Series B dilution and preference stack", summary: "Model post-money, option pool refresh, liquidation preference and founder dilution.", difficulty: "Medium", time: "30 min", tone: "green" },
-  { id: "c7", category: "Capital Markets", title: "IPO readiness memo", summary: "Evaluate growth, margin profile, governance, market window and investor story.", difficulty: "Hard", time: "45 min", tone: "blue" },
-  { id: "c8", category: "Restructuring", title: "Recovery waterfall mini-case", summary: "Allocate EV across secured debt, unsecured notes and equity.", difficulty: "MD", time: "50 min", tone: "black" }
+
+const cases: CaseItem[] = [
+  { title: "Build a 3-Statement Model", tag: "Financial Modeling", difficulty: "Medium", minutes: 45, summary: "Forecast revenue, margins, working capital, capex, debt and cash flow linkage.", tone: "blue" },
+  { title: "DCF Valuation Analysis", tag: "Valuation", difficulty: "Medium", minutes: 40, summary: "Estimate intrinsic value using WACC, terminal growth and exit multiple checks.", tone: "red" },
+  { title: "Buy-Side M&A Case", tag: "M&A", difficulty: "Hard", minutes: 60, summary: "Assess synergy, accretion/dilution, diligence risk and deal recommendation.", tone: "green" },
+  { title: "Market Entry Strategy", tag: "Strategy", difficulty: "Medium", minutes: 35, summary: "Evaluate market size, competition, go-to-market and investment attractiveness.", tone: "purple" }
 ];
+
+const questions: Question[] = [
+  { id: "q1", category: "Valuation", difficulty: "Medium", title: "FCFF from EBIT", prompt: "A company has EBIT of ₹100 Cr, tax rate 25%, D&A ₹12 Cr, capex ₹28 Cr and NWC increase ₹9 Cr. Calculate FCFF.", numeric: 50, solution: "FCFF = EBIT × (1 − tax) + D&A − capex − ΔNWC = 100 × 75% + 12 − 28 − 9 = ₹50 Cr.", xp: 80 },
+  { id: "q2", category: "Private Equity", difficulty: "Hard", title: "Paper LBO", prompt: "Buy at 10.0x EBITDA. EBITDA is ₹50 Cr. Debt is 5.0x EBITDA. Exit after 5 years at 9.0x EBITDA with EBITDA ₹90 Cr and zero debt. Calculate MOIC.", numeric: 3.24, solution: "Entry EV ₹500 Cr, debt ₹250 Cr, equity ₹250 Cr. Exit EV ₹810 Cr. MOIC = 810 / 250 = 3.24x.", xp: 120 },
+  { id: "q3", category: "Investment Banking", difficulty: "Easy", title: "Enterprise Value Bridge", prompt: "Which formula is correct?", options: ["Equity Value + Debt + Preferred + Minority Interest − Cash", "Equity Value − Debt + Cash", "EBITDA + Debt − Cash", "Revenue × EBITDA margin"], correct: "Equity Value + Debt + Preferred + Minority Interest − Cash", solution: "EV equals equity value plus debt, preferred equity and minority interest, minus cash and equivalents.", xp: 50 },
+  { id: "q4", category: "Private Credit", difficulty: "MD", title: "Credit Committee View", prompt: "A sponsor wants 5.5x leverage on a cyclical asset with 18% EBITDA margin and weak cash conversion. What questions do you ask before lending?", solution: "Focus on cash conversion, maintenance capex, cyclicality, customer concentration, covenant headroom, collateral value, repayment path and downside recovery.", xp: 150 }
+];
+
 const modules: Module[] = [
-  ["Recruiter Mode", "Career", "Score your project like an IB/PE recruiter.", "AI_API_KEY", "Rate my finance project like a PE recruiter."], ["MD Pressure Room", "Interview", "Turn any answer into a senior pressure round.", "AI_API_KEY", "Pressure test my answer as a managing director."], ["Deal Teardown Library", "Deals", "Break a deal into thesis, valuation, risks and financing.", "NEWS_API_KEY + AI_API_KEY", "Create a deal teardown checklist."], ["Excel Muscle Memory", "Modeling", "Timed shortcut drills for analyst speed.", "No key", "Give me a 10-minute Excel shortcut sprint."], ["Model Error Hunter", "Modeling", "Find formula, sign, circularity and assumption mistakes.", "AI_API_KEY", "Audit this model logic for mistakes."], ["IC Memo Builder", "PE", "Turn raw investment thinking into IC memo format.", "AI_API_KEY", "Convert this thesis into an IC memo."], ["Would You Invest Game", "Judgment", "Make invest/pass/reprice decisions.", "AI_API_KEY", "Give me an investment snapshot."], ["Live News Question Engine", "Markets", "Convert headlines into finance mini-cases.", "NEWS_API_KEY", "Turn today’s market theme into questions."], ["Personal Weakness Graph", "Analytics", "Map wrong attempts to concept weakness.", "Supabase", "Summarize my weakest finance topics."], ["Interview Bank by Firm", "Recruiting", "Generate firm-style drills for banks and funds.", "AI_API_KEY", "Give me KKR-style PE questions."], ["Deal Math Speed Trainer", "Mental Math", "EV, leverage, IRR, MOIC and dilution drills.", "No key", "Create 10 deal math questions."], ["Investment Journal AI", "Thinking", "Rate and improve daily investment thinking.", "AI_API_KEY", "Rate this investment journal entry."], ["Pitchbook Simulator", "IB", "Build teaser, CIM, buyer list and process timeline.", "AI_API_KEY", "Create a sell-side pitchbook outline."], ["LBO Paper Test", "PE", "30-minute paper LBO with return bridge.", "No key", "Give me a paper LBO test."], ["Private Credit Underwriting", "Credit", "DSCR, covenants, recovery and downside case.", "AI_API_KEY", "Create a private credit underwriting case."], ["Founder Call Simulator", "Diligence", "Simulate a founder call with hidden red flags.", "AI_API_KEY", "Act like a founder in diligence."], ["Red Flag Detector", "Diligence", "Scan narratives for governance and cash-flow risks.", "FILINGS_API_KEY + AI_API_KEY", "List red flags in an annual report."], ["Cap Table Simulator", "VC", "Rounds, ESOP, preference and dilution practice.", "No key", "Create a VC cap table mini-case."], ["Career Path Engine", "Career", "Build a weekly roadmap to IB/PE/credit.", "AI_API_KEY", "Create a 12-week IB/PE transition plan."], ["Portfolio Project Tracker", "Career", "Track models, memos and recruiter proof points.", "Supabase", "Design a recruiter-grade project tracker."], ["Real Filing Reader", "Research", "Convert filings into diligence checklists.", "FILINGS_API_KEY", "Give me a filing review checklist."], ["AI Mentor Personas", "Mentors", "Switch between IB, PE, credit, VC and CFO mentors.", "AI_API_KEY", "Coach me like a PE VP."], ["Bad Answer Rewriter", "Communication", "Rewrite weak answers into crisp interview responses.", "AI_API_KEY", "Rewrite my answer into a strong response."], ["Case Competition Mode", "Projects", "Simulate a 48-hour model, memo and deck case.", "AI_API_KEY + Supabase", "Create a 48-hour PE case brief."], ["Daily Killer Insight", "Learning", "One sharp finance concept and mini question.", "AI_API_KEY / NEWS_API_KEY", "Give me one killer finance insight."]
-].map(([name, bucket, description, required, quickPrompt]) => ({ name, bucket, description, required, quickPrompt }));
-const categories = ["All", "Accounting", "Corporate Finance", "Valuation", "Financial Modeling", "Excel", "Investment Banking", "M&A", "Private Equity", "VC", "Private Credit", "Markets", "Restructuring", "Interviews"];
-const difficulties: ("All" | Difficulty)[] = ["All", "Easy", "Medium", "Hard", "MD"];
-const qTypes: ("All" | QuestionType)[] = ["All", "MCQ", "Subjective", "Numerical", "Formula", "Model Review", "Case", "Interview", "Judgment"];
-const apiSlots = [
-  { label: "Supabase", key: "supabaseConfigured", source: "supabase", vars: "NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", use: "Progress persistence and future auth." },
-  { label: "AI Coach", key: "aiConfigured", source: "ai", vars: "AI_API_URL + AI_API_KEY or vault", use: "Advanced modules and answer coaching." },
-  { label: "News", key: "newsConfigured", source: "news", vars: "Marketaux API key", use: "Live news refresh and headline-to-case conversion." },
-  { label: "Market Data", key: "marketConfigured", source: "marketData", vars: "Twelve Data API key", use: "Live market quotes and drills." },
-  { label: "Backup Market", key: "backupMarketConfigured", source: "backupMarket", vars: "Alpha Vantage API key", use: "Fallback quote provider." },
-  { label: "Fundamentals", key: "fundamentalsConfigured", source: "fundamentals", vars: "FMP API key", use: "Income statements and fundamental modeling drills." }
+  { name: "MD Pressure Room", bucket: "Interview", description: "Turn any weak answer into a senior pressure round.", prompt: "Pressure test my answer like a PE managing director.", accent: "red" },
+  { name: "Deal Teardown Library", bucket: "M&A", description: "Break live headlines into thesis, valuation, financing and risks.", prompt: "Create a deal teardown using today’s market context.", accent: "blue" },
+  { name: "IC Memo Builder", bucket: "Private Equity", description: "Convert raw investment thinking into IC-ready memo sections.", prompt: "Build an IC memo structure for a mid-market acquisition.", accent: "green" },
+  { name: "Model Error Hunter", bucket: "Modeling", description: "Find broken assumptions, sign errors and weak forecast logic.", prompt: "Audit this financial model logic for errors.", accent: "purple" },
+  { name: "Private Credit Underwriting", bucket: "Credit", description: "Practice DSCR, covenants, downside case and recovery.", prompt: "Create a private credit underwriting case.", accent: "black" },
+  { name: "Bad Answer Rewriter", bucket: "Communication", description: "Rewrite answers into crisp associate/VP-level responses.", prompt: "Rewrite my answer into a strong interview response.", accent: "blue" }
 ];
 
-function rotate<T>(items: T[], by: number, count: number) { return Array.from({ length: Math.min(count, items.length) }, (_, i) => items[(by + i) % items.length]); }
-function pct(n: number, d: number) { return d ? Math.round((n / d) * 100) : 0; }
-function asTone(value: unknown): Tone { return value === "red" || value === "green" || value === "black" || value === "blue" ? value : "blue"; }
-function money(value: number | null | undefined) { return typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"; }
-function mask(value: string) { return value ? `${value.slice(0, 4)}••••${value.slice(-4)}` : "Not added"; }
+const apiSlots = [
+  ["News", "newsConfigured", "Marketaux live headlines"],
+  ["Market Data", "marketConfigured", "Twelve Data quotes"],
+  ["Backup Market", "backupMarketConfigured", "Alpha Vantage fallback"],
+  ["Fundamentals", "fundamentalsConfigured", "FMP stable statements"],
+  ["AI Coach", "aiConfigured", "NVIDIA/OpenAI-compatible"],
+  ["Supabase", "supabaseConfigured", "Cloud persistence base"]
+];
 
-function questionBank(): Question[] {
-  return [
-    { id: "q1", category: "Valuation", title: "FCFF from EBIT", prompt: "A company has EBIT of ₹100 Cr, tax rate of 25%, D&A of ₹12 Cr, capex of ₹28 Cr and increase in NWC of ₹9 Cr. Calculate FCFF.", type: "Numerical", difficulty: "Medium", xp: 60, numeric: 50, solution: "FCFF = 100 × 75% + 12 − 28 − 9 = ₹50 Cr.", rubric: ["ebit", "tax", "capex", "nwc"] },
-    { id: "q2", category: "Private Equity", title: "Paper LBO logic", prompt: "Buy at 10.0x EBITDA. EBITDA is ₹50 Cr. Debt is 5.0x EBITDA. Exit at 9.0x after 5 years with EBITDA of ₹90 Cr and zero debt. Calculate MOIC.", type: "Numerical", difficulty: "Hard", xp: 90, numeric: 3.24, solution: "Entry EV ₹500 Cr, debt ₹250 Cr, equity ₹250 Cr. Exit EV ₹810 Cr. MOIC = 810 / 250 = 3.24x.", rubric: ["entry", "debt", "exit", "moic"] },
-    { id: "q3", category: "Investment Banking", title: "EV bridge", prompt: "Which bridge is generally correct?", type: "MCQ", difficulty: "Easy", xp: 30, options: ["Equity Value + Debt + Preferred + Minority Interest − Cash", "Equity Value − Debt + Cash", "EBITDA + Debt − Cash", "Revenue × Margin"], correct: "Equity Value + Debt + Preferred + Minority Interest − Cash", solution: "Enterprise Value = Equity Value + Debt + Preferred Equity + Minority Interest − Cash.", rubric: ["equity", "debt", "cash"] },
-    { id: "q4", category: "Financial Modeling", title: "Model audit", prompt: "An analyst links revenue growth directly to EBITDA growth and keeps working capital constant even when revenue doubles. What is wrong and how would you fix it?", type: "Model Review", difficulty: "Medium", xp: 70, solution: "Revenue should flow through price/volume and margin assumptions. Working capital should scale using DSO/DIO/DPO or percentage-of-sales drivers.", rubric: ["working", "capital", "margin", "driver"] },
-    { id: "q5", category: "M&A", title: "Accretion/dilution", prompt: "Explain why a strategically good acquisition can still be EPS dilutive in year one.", type: "Subjective", difficulty: "Medium", xp: 55, solution: "Financing cost, new shares, amortization and integration costs can exceed first-year earnings contribution and synergies.", rubric: ["financing", "shares", "synergy", "amortization"] },
-    { id: "q6", category: "Private Credit", title: "Covenant choice", prompt: "A borrower has volatile EBITDA and high maintenance capex. Which protects lender downside better: gross leverage only or DSCR/cash-flow covenant?", type: "Judgment", difficulty: "Hard", xp: 85, solution: "DSCR/cash-flow covenant is stronger because it captures actual debt-service capacity after capex and cash volatility.", rubric: ["dscr", "cash", "capex", "liquidity"] },
-    { id: "q7", category: "VC", title: "Unit economics", prompt: "SaaS company: CAC payback 28 months, NDR 95%, gross margin 62%, high burn. Growth or efficiency first?", type: "Judgment", difficulty: "Hard", xp: 80, solution: "Efficiency first. Weak NDR, long payback and moderate margin suggest growth can destroy value.", rubric: ["cac", "ndr", "margin", "burn"] },
-    { id: "q8", category: "Restructuring", title: "Fulcrum security", prompt: "Define fulcrum security and explain why it matters in distressed investing.", type: "Interview", difficulty: "MD", xp: 110, solution: "It is the claim where enterprise value breaks; it often converts into reorganized equity and drives recovery.", rubric: ["enterprise", "value", "recovery", "equity"] },
-    { id: "q9", category: "Accounting", title: "Revenue versus cash", prompt: "Why can revenue grow while operating cash flow falls? Give three reasons.", type: "Subjective", difficulty: "Easy", xp: 35, solution: "Receivables rise, inventory builds, payables shrink, margins fall or revenue quality weakens.", rubric: ["receivable", "inventory", "payable", "margin"] },
-    { id: "q10", category: "Markets", title: "Rates and valuation", prompt: "When risk-free rates rise, what happens to DCF valuation, all else equal?", type: "MCQ", difficulty: "Easy", xp: 25, options: ["Valuation generally decreases", "Valuation always increases", "Only revenue changes", "Terminal value disappears"], correct: "Valuation generally decreases", solution: "Higher risk-free rates usually increase discount rates, lowering present value.", rubric: ["discount", "wacc", "present"] }
-  ];
-}
-function gradeAnswer(q: Question, answer: string): Grade {
-  const clean = answer.trim().toLowerCase();
-  if (!clean) return { score: 0, correct: false, feedback: "No answer submitted. Attempt it first.", stronger: q.solution };
-  if (q.type === "MCQ") { const correct = clean === String(q.correct || "").toLowerCase(); return { score: correct ? 10 : 0, correct, feedback: correct ? "Correct." : "Incorrect. Revisit the bridge and economics.", stronger: q.solution }; }
-  if (q.type === "Numerical" && typeof q.numeric === "number") { const parsed = Number(clean.replace(/[^0-9.-]/g, "")); const correct = Number.isFinite(parsed) && Math.abs(parsed - q.numeric) <= (Math.abs(q.numeric) <= 10 ? 0.1 : 1); return { score: correct ? 10 : 5, correct, feedback: correct ? "Correct calculation. Now explain the implication." : `Expected around ${q.numeric}.`, stronger: q.solution }; }
-  const hits = q.rubric.filter((word) => clean.includes(word)).length;
-  const score = Math.min(10, Math.max(3, hits * 2 + (answer.length > 160 ? 2 : answer.length > 80 ? 1 : 0)));
-  return { score, correct: score >= 7, feedback: score >= 7 ? "Strong direction. Use conclusion → driver → risk → decision." : "Partially developed. Add drivers, downside risk and decision impact.", stronger: q.solution };
+function money(value?: number | null) {
+  if (typeof value !== "number") return "—";
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-export default function Page() {
-  const questions = useMemo(() => questionBank(), []);
-  const [tab, setTab] = useState<NavTab>("Home");
+function pct(n: number, d: number) {
+  return d ? Math.round((n / d) * 100) : 0;
+}
+
+function safeJson(value: unknown) {
+  return JSON.stringify(value, null, 2);
+}
+
+function tone(value?: string): Tone {
+  return value === "red" || value === "green" || value === "purple" || value === "black" || value === "blue" ? value : "blue";
+}
+
+export default function CapitalForge() {
+  const [tab, setTab] = useState<Tab>("Home");
   const [store, setStore] = useState<Store>(baseStore);
-  const [vault, setVault] = useState<ApiVault>(emptyVault);
-  const [category, setCategory] = useState("All");
-  const [difficulty, setDifficulty] = useState<"All" | Difficulty>("All");
-  const [qType, setQType] = useState<"All" | QuestionType>("All");
-  const [qIndex, setQIndex] = useState(0);
-  const [answer, setAnswer] = useState("");
-  const [selectedOption, setSelectedOption] = useState("");
-  const [confidence, setConfidence] = useState(3);
-  const [showHint, setShowHint] = useState(false);
-  const [grade, setGrade] = useState<Grade | null>(null);
-  const [caseOffset, setCaseOffset] = useState(0);
-  const [news, setNews] = useState<NewsItem[]>(newsBank.slice(0, 5));
-  const [newsLoading, setNewsLoading] = useState(false);
-  const [marketSymbol, setMarketSymbol] = useState("AAPL");
+  const [news, setNews] = useState<NewsItem[]>(fallbackNews);
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [symbol, setSymbol] = useState("AAPL");
   const [health, setHealth] = useState<Health | null>(null);
-  const [healthLoading, setHealthLoading] = useState(false);
-  const [moduleInput, setModuleInput] = useState("");
-  const [moduleOutput, setModuleOutput] = useState<ApiResult | null>(null);
-  const [activeModule, setActiveModule] = useState(modules[0]);
-  const [interviewRole, setInterviewRole] = useState("Private Equity Associate");
-  const [interviewOutput, setInterviewOutput] = useState<ApiResult | null>(null);
-  const [apiInput, setApiInput] = useState("Give me one PE interview question on LBO value creation.");
-  const [apiOutput, setApiOutput] = useState<ApiResult | null>(null);
-  const [marketOutput, setMarketOutput] = useState<ApiResult | null>(null);
-  const [fundamentalsOutput, setFundamentalsOutput] = useState<ApiResult | null>(null);
-  const [importText, setImportText] = useState("");
-  const [activity, setActivity] = useState<Activity[]>([]);
-  const [toast, setToast] = useState("Phase E ready: add API keys inside the API tab or use Vercel env.");
-
-  const visibleCases = useMemo(() => rotate(caseBank, caseOffset, 4), [caseOffset]);
-  const filtered = questions.filter((q) => (category === "All" || q.category === category) && (difficulty === "All" || q.difficulty === difficulty) && (qType === "All" || q.type === qType));
-  const currentQuestion = filtered.length ? filtered[qIndex % filtered.length] : questions[0];
-  const solved = store.attempts.length;
-  const correct = store.attempts.filter((a) => a.correct).length;
-  const accuracy = pct(correct, solved);
-  const progress = Math.min(100, Math.round((store.xp / 2500) * 100));
-  const quote = marketOutput?.quote;
-
-  function setVaultField(key: keyof ApiVault, value: string) { setVault((v) => ({ ...v, [key]: value })); }
-  function providerHeaders(json = false): Record<string, string> {
-    const headers: Record<string, string> = json ? { "content-type": "application/json" } : {};
-    const pairs: Array<[string, string]> = [
-      ["x-capital-forge-ai-provider", vault.aiProvider], ["x-capital-forge-ai-url", vault.aiUrl], ["x-capital-forge-ai-key", vault.aiKey], ["x-capital-forge-ai-model", vault.aiModel],
-      ["x-capital-forge-news-provider", vault.newsProvider], ["x-capital-forge-news-url", vault.newsUrl], ["x-capital-forge-news-key", vault.newsKey],
-      ["x-capital-forge-market-provider", vault.marketProvider], ["x-capital-forge-market-url", vault.marketUrl], ["x-capital-forge-market-key", vault.marketKey],
-      ["x-capital-forge-backup-market-key", vault.backupMarketKey],
-      ["x-capital-forge-fundamentals-provider", vault.fundamentalsProvider], ["x-capital-forge-fundamentals-url", vault.fundamentalsUrl], ["x-capital-forge-fundamentals-key", vault.fundamentalsKey]
-    ];
-    pairs.forEach(([k, v]) => { if (v.trim()) headers[k] = v.trim(); });
-    return headers;
-  }
-  function vaultLocalStatus(key: string) { return ({ aiConfigured: Boolean(vault.aiUrl && vault.aiKey), newsConfigured: Boolean(vault.newsKey), marketConfigured: Boolean(vault.marketKey), backupMarketConfigured: Boolean(vault.backupMarketKey), fundamentalsConfigured: Boolean(vault.fundamentalsKey) } as Record<string, boolean>)[key] || false; }
-  function log(text: string, tone: Tone = "blue") { const row = { id: `${Date.now()}-${Math.random()}`, text, at: new Date().toLocaleTimeString(), tone }; setActivity((old) => [row, ...old].slice(0, 12)); setToast(text); }
+  const [apiResult, setApiResult] = useState<unknown>(null);
+  const [currentQuestion, setCurrentQuestion] = useState(questions[0]);
+  const [answer, setAnswer] = useState("");
+  const [grade, setGrade] = useState<null | { correct: boolean; score: number; feedback: string }>(null);
+  const [moduleInput, setModuleInput] = useState("Create a live finance drill from today’s market conditions.");
+  const [selectedModule, setSelectedModule] = useState(modules[0]);
+  const [aiOutput, setAiOutput] = useState("Launch an advanced module to generate AI output here.");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");
+  const [lastUpdated, setLastUpdated] = useState("Just now");
 
   useEffect(() => {
-    try { const raw = localStorage.getItem(storeKey); if (raw) setStore({ ...baseStore, ...JSON.parse(raw) }); } catch { setToast("Local progress could not be restored; starting clean."); }
-    try { const rawVault = localStorage.getItem(vaultKey); if (rawVault) setVault({ ...emptyVault, ...JSON.parse(rawVault) }); } catch { setToast("API vault could not be restored; add keys again if needed."); }
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) setStore({ ...baseStore, ...JSON.parse(raw) });
+    } catch {}
   }, []);
-  useEffect(() => { try { localStorage.setItem(storeKey, JSON.stringify(store)); } catch { setToast("Local save failed. Export a backup before continuing."); } }, [store]);
-  useEffect(() => { void refreshHealth(false); void refreshNews(false); void refreshMarket(false); }, [vault]);
 
-  function saveVault() { localStorage.setItem(vaultKey, JSON.stringify(vault)); log("API keys saved in this browser vault. They were not committed to GitHub.", "green"); void refreshHealth(true); }
-  function clearVault() { localStorage.removeItem(vaultKey); setVault(emptyVault); log("Browser API vault cleared.", "red"); }
+  useEffect(() => {
+    localStorage.setItem(storeKey, JSON.stringify(store));
+  }, [store]);
 
-  async function refreshHealth(noisy = true) {
-    setHealthLoading(true);
-    try { const response = await fetch(`/api/health?ts=${Date.now()}`, { cache: "no-store", headers: providerHeaders() }); const data = (await response.json()) as Health; setHealth(data); if (noisy) log("Health refreshed with Vercel env + browser vault status.", "green"); }
-    catch { if (noisy) log("Health endpoint failed. Check deployment route and Vercel status.", "red"); }
-    finally { setHealthLoading(false); }
+  useEffect(() => {
+    refreshAll();
+  }, []);
+
+  const accuracy = pct(store.attempts.filter((x) => x.correct).length, store.attempts.length);
+  const progress = Math.min(100, Math.round(store.xp / 20));
+
+  async function getJson(url: string, init?: RequestInit) {
+    const response = await fetch(url, { ...init, cache: "no-store" });
+    return response.json();
   }
-  async function refreshNews(noisy = true) {
-    setNewsLoading(true);
-    try { const response = await fetch(`/api/news?limit=8&ts=${Date.now()}`, { cache: "no-store", headers: providerHeaders() }); const data = (await response.json()) as ApiResult; const liveNews = Array.isArray(data.news) && data.news.length ? data.news.map((n) => ({ ...n, tone: asTone(n.tone), visual: n.visual || "📰", source: n.source || data.provider || "Provider" })) : newsBank; setNews(liveNews.slice(0, 5)); if (noisy) log(data.configured ? `Live news loaded from ${data.source || data.provider}.` : "Demo news loaded because Marketaux is not active yet.", data.configured ? "green" : "blue"); }
-    catch { setNews(rotate(newsBank, Date.now() % newsBank.length, 5)); if (noisy) log("News provider failed. Demo news loaded safely.", "red"); }
-    finally { setNewsLoading(false); }
+
+  async function refreshHealth() {
+    const data = await getJson("/api/health");
+    setHealth(data);
+    setApiResult(data);
+    return data;
   }
-  async function refreshMarket(noisy = true) {
-    try { const response = await fetch(`/api/market?symbol=${encodeURIComponent(marketSymbol || "AAPL")}&ts=${Date.now()}`, { cache: "no-store", headers: providerHeaders() }); const data = (await response.json()) as ApiResult; setMarketOutput(data); if (noisy) log(data.configured ? `Market quote loaded from ${data.provider} via ${data.source}.` : "Demo market quote loaded.", data.configured ? "green" : "blue"); }
-    catch { setMarketOutput({ configured: false, warning: "Market endpoint failed." }); if (noisy) log("Market endpoint failed.", "red"); }
+
+  async function refreshNews() {
+    setBusy("news");
+    try {
+      const data = await getJson("/api/news?limit=5");
+      setNews(Array.isArray(data.news) && data.news.length ? data.news.map((n: NewsItem) => ({ ...n, tone: tone(n.tone) })) : fallbackNews);
+      setApiResult(data);
+      setLastUpdated(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    } finally {
+      setBusy("");
+    }
   }
-  async function refreshFundamentals(noisy = true) {
-    try { const response = await fetch(`/api/fundamentals?symbol=${encodeURIComponent(marketSymbol || "AAPL")}&limit=5&ts=${Date.now()}`, { cache: "no-store", headers: providerHeaders() }); const data = (await response.json()) as ApiResult; setFundamentalsOutput(data); if (noisy) log(data.configured ? `FMP fundamentals loaded for ${marketSymbol.toUpperCase()} via ${data.source}.` : "Demo fundamentals loaded because FMP key is missing.", data.configured ? "green" : "blue"); }
-    catch { setFundamentalsOutput({ configured: false, warning: "Fundamentals endpoint failed." }); if (noisy) log("Fundamentals endpoint failed.", "red"); }
+
+  async function refreshQuote(nextSymbol = symbol) {
+    setBusy("quote");
+    try {
+      const data = await getJson(`/api/market?symbol=${encodeURIComponent(nextSymbol || "AAPL")}`);
+      setQuote(data.quote || null);
+      setApiResult(data);
+    } finally {
+      setBusy("");
+    }
   }
-  async function launchModule(module: Module, input = moduleInput || module.quickPrompt) {
-    setActiveModule(module); setModuleOutput({ output: "Running module..." });
-    try { const response = await fetch("/api/lab", { method: "POST", headers: providerHeaders(true), body: JSON.stringify({ module: module.name, input, model: vault.aiModel }) }); const data = (await response.json()) as ApiResult; setModuleOutput(data); setStore((s) => ({ ...s, launchedModules: [module.name, ...s.launchedModules.filter((x) => x !== module.name)].slice(0, 30) })); log(`${module.name} launched in ${data.configured ? "connected" : "safe-demo"} mode.`, data.configured ? "green" : "blue"); }
-    catch { setModuleOutput({ configured: false, module: module.name, output: "Module call failed. Local UI remains usable.", nextStep: "Run API → Refresh Health, then test again." }); log(`${module.name} request failed.`, "red"); }
+
+  async function testFundamentals() {
+    setBusy("fmp");
+    try {
+      const data = await getJson(`/api/fundamentals?symbol=${encodeURIComponent(symbol || "AAPL")}`);
+      setApiResult(data);
+    } finally {
+      setBusy("");
+    }
   }
-  async function startInterview() {
-    setInterviewOutput({ output: "Starting mock interview..." });
-    try { const response = await fetch("/api/coach", { method: "POST", headers: providerHeaders(true), body: JSON.stringify({ mode: "mock_interview", question: `Run a ${interviewRole} mock interview.`, answer: "Start the mock and evaluate my next answer.", context: interviewRole, model: vault.aiModel }) }); const data = (await response.json()) as ApiResult; setInterviewOutput(data); log(`Interview Room started: ${interviewRole}.`, data.configured ? "green" : "blue"); }
-    catch { setInterviewOutput({ configured: false, output: "Local fallback: explain why EBITDA alone is not enough for LBO quality, then defend downside risk." }); log("Interview Room fallback started.", "red"); }
+
+  async function refreshAll() {
+    await Promise.allSettled([refreshHealth(), refreshNews(), refreshQuote("AAPL")]);
   }
-  function openPracticeFromCase(item: ShortCase) { setCategory(item.category === "Capital Markets" ? "Markets" : item.category); setDifficulty(item.difficulty); setTab("Practice"); setAnswer(""); setSelectedOption(""); setGrade(null); log(`Opened short case: ${item.title}.`, item.tone); }
-  function submitAnswer() { const finalAnswer = currentQuestion.type === "MCQ" ? selectedOption : answer; const result = gradeAnswer(currentQuestion, finalAnswer); setGrade(result); const attempt: Attempt = { id: `${Date.now()}`, questionId: currentQuestion.id, title: currentQuestion.title, category: currentQuestion.category, score: result.score, correct: result.correct, answer: finalAnswer, createdAt: new Date().toISOString() }; setStore((s) => ({ ...s, xp: s.xp + Math.round((currentQuestion.xp * result.score) / 10), attempts: [attempt, ...s.attempts].slice(0, 150) })); log(result.correct ? `Correct: +${Math.round((currentQuestion.xp * result.score) / 10)} XP added.` : "Attempt saved. Review the stronger answer.", result.correct ? "green" : "red"); }
-  function nextQuestion() { setQIndex((x) => x + 1); setAnswer(""); setSelectedOption(""); setShowHint(false); setGrade(null); log("Loaded next practice question.", "blue"); }
-  function toggleBookmark(id: string) { const had = store.bookmarks.includes(id); setStore((s) => ({ ...s, bookmarks: had ? s.bookmarks.filter((x) => x !== id) : [id, ...s.bookmarks] })); log(had ? "Bookmark removed." : "Question bookmarked for review.", "black"); }
-  function saveNote(text: string) { const clean = text.trim(); if (!clean) return; setStore((s) => ({ ...s, notes: [`${new Date().toLocaleString()} — ${clean}`, ...s.notes].slice(0, 80) })); log("Saved to Feedback journal.", "green"); }
-  async function runApiTest(kind: "lab" | "coach" | "market" | "news" | "fundamentals") { setApiOutput({ output: "Running API test..." }); if (kind === "market") { await refreshMarket(true); setApiOutput({ output: "Market test complete. See Market Console below." }); return; } if (kind === "news") { await refreshNews(true); setApiOutput({ provider: "marketaux", output: "News test complete. See Home news cards." }); return; } if (kind === "fundamentals") { await refreshFundamentals(true); setApiOutput({ output: "Fundamentals test complete. See FMP panel below." }); return; } try { const endpoint = kind === "coach" ? "/api/coach" : "/api/lab"; const response = await fetch(endpoint, { method: "POST", headers: providerHeaders(true), body: JSON.stringify({ module: "API Console", mode: "api_console", question: apiInput, answer: apiInput, input: apiInput, context: "Capital Forge API test", model: vault.aiModel }) }); const data = (await response.json()) as ApiResult; setApiOutput(data); log(`${kind === "coach" ? "Coach" : "AI Lab"} endpoint tested.`, data.configured ? "green" : "blue"); } catch { setApiOutput({ configured: false, output: "API test failed. Check route availability and Vercel deployment logs." }); log("API test failed.", "red"); } }
-  function exportBackup() { const payload = { exportedAt: new Date().toISOString(), app: "Capital Forge", version: "phase-e", store }; const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `capital-forge-backup-${Date.now()}.json`; anchor.click(); URL.revokeObjectURL(url); setStore((s) => ({ ...s, backups: s.backups + 1 })); log("Progress backup exported.", "green"); }
-  function importBackup() { try { const parsed = JSON.parse(importText) as { store?: Store }; if (!parsed.store) throw new Error("missing store"); setStore({ ...baseStore, ...parsed.store }); setImportText(""); log("Backup imported successfully.", "green"); } catch { log("Backup import failed. Paste the full exported JSON.", "red"); } }
-  function resetProgress() { setStore(baseStore); setGrade(null); setAnswer(""); setSelectedOption(""); log("Local progress reset.", "red"); }
 
-  return <div className="appShell"><aside className="sidebar"><div className="brand"><div className="logo">CF</div><div><b>Capital Forge</b><span>Finance mastery OS</span></div></div><nav>{navTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav><div className="upgrade"><b>Phase E API Vault</b><p>Add keys in the platform or use Vercel env. Keys are never committed to GitHub.</p><button onClick={() => setTab("API")}>Open API Vault</button></div><div className="miniLog">{activity.slice(0, 3).map((a) => <p key={a.id}><span className={`dot ${a.tone}`} />{a.text}</p>)}</div></aside><main className="main"><header className="topbar"><div className="search"><span>⌕</span><input readOnly placeholder="Search topics, cases, formulas, modules..." onFocus={() => log("Search shell ready. Deep search comes with database expansion.", "blue")} /></div><button className="assistantBtn" onClick={() => launchModule(modules[24])}>✦ AI Assistant</button><button className="iconBtn" onClick={() => setTab("Feedback")}>🔔</button><button className="iconBtn" onClick={() => setTab("Dashboard")}>🏆</button><div className="profile"><span>DC</span><div><b>Deepak</b><small>Keep Going!</small></div></div></header>{toast && <div className="toast">{toast}</div>}
+  function submitAnswer() {
+    const normalized = answer.trim().toLowerCase();
+    let correct = false;
+    if (currentQuestion.options?.length) correct = normalized === String(currentQuestion.correct || "").toLowerCase();
+    else if (typeof currentQuestion.numeric === "number") correct = Math.abs(Number(normalized.replace(/[₹,x]/g, "")) - currentQuestion.numeric) <= Math.max(0.05, currentQuestion.numeric * 0.02);
+    else correct = normalized.length > 120;
+    const score = correct ? 9 : normalized.length > 50 ? 6 : 4;
+    const attempt: Attempt = { id: crypto.randomUUID(), question: currentQuestion.title, answer, score, correct, createdAt: new Date().toISOString(), category: currentQuestion.category };
+    setStore((s) => ({ ...s, xp: s.xp + (correct ? currentQuestion.xp : 20), attempts: [attempt, ...s.attempts].slice(0, 30), streak: Math.max(1, s.streak || 1) }));
+    setGrade({ correct, score, feedback: correct ? currentQuestion.solution : `Not yet. ${currentQuestion.solution}` });
+  }
 
-  {tab === "Home" && <section className="layoutGrid"><div className="contentCol"><div className="heroCard"><div><p className="eyebrow">AI-powered finance learning</p><h1>Welcome back, Deepak! 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="statRow"><Stat label="Accuracy" value={`${accuracy}%`} tone="green" /><Stat label="Questions Solved" value={String(solved)} tone="blue" /><Stat label="XP" value={String(store.xp)} tone="red" /></div></div><div className="aiCube"><span>AI</span><p>Live provider adapters + in-platform API key vault.</p></div></div><Panel title="Live News & Updates" action={<button onClick={() => refreshNews(true)}>{newsLoading ? "Loading..." : "⟳ Refresh Live News"}</button>} subtitle="Marketaux when connected; demo cards when not."><div className="newsGrid">{news.map((n) => <article className="newsCard" key={n.id}><div className={`visual ${n.tone}`}>{n.visual}</div><span className={`tag ${n.tone}`}>{n.tag}</span><small>{n.time} · {n.source}</small><h3>{n.title}</h3><p>{n.summary}</p><button onClick={() => { if (n.url) window.open(n.url, "_blank", "noopener,noreferrer"); else { setModuleInput(`${n.title} — ${n.summary}`); setTab("Advanced"); } }}>{n.url ? "Read Source →" : "Turn into Drill →"}</button></article>)}</div></Panel><Panel title="Featured Short Cases" action={<button onClick={() => { setCaseOffset((x) => x + 1); log("Short cases refreshed.", "green"); }}>⟳ Refresh Cases</button>} subtitle="Short cases rotate even when live APIs are missing."><div className="caseGrid">{visibleCases.map((c, i) => <article className="caseCard" key={c.id}><div><span>Case {i + 1}</span><b className={`tag ${c.tone}`}>{c.category}</b></div><h3>{c.title}</h3><p>{c.summary}</p><small>{c.difficulty} · {c.time}</small><button onClick={() => openPracticeFromCase(c)}>Solve Now →</button></article>)}</div></Panel></div><aside className="rightRail"><Card title="Market Snapshot"><label>Symbol<input value={marketSymbol} onChange={(e) => setMarketSymbol(e.target.value.toUpperCase())} /></label><button onClick={() => refreshMarket(true)}>Refresh Quote</button>{quote && <p><b>{quote.symbol}</b>: {money(quote.price)} {quote.currency || ""} · {money(quote.change)} / {money(quote.percentChange)}%</p>}<small>{marketOutput?.provider ? `Provider: ${marketOutput.provider} · ${marketOutput.source || ""}` : "Provider not tested yet"}</small></Card><Card title="Your Progress"><div className="donut" style={{ background: `conic-gradient(#2563eb ${progress}%, #e5e7eb 0)` }}><span>{progress}%</span></div><p>Overall progress based on XP target.</p></Card><Card title="Quick Actions"><div className="quick"><button onClick={() => setTab("Practice")}>▶ Practice</button><button onClick={() => setTab("Advanced")}>▣ Advanced</button><button onClick={startInterview}>🎥 Mock</button><button onClick={exportBackup}>↧ Backup</button></div></Card></aside></section>}
+  async function launchModule(module = selectedModule) {
+    setSelectedModule(module);
+    setBusy("ai");
+    setAiOutput("Running AI module...");
+    try {
+      const data = await getJson("/api/lab", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ module: module.name, input: moduleInput })
+      });
+      setApiResult(data);
+      setAiOutput(data.output || data.feedback || safeJson(data));
+    } finally {
+      setBusy("");
+    }
+  }
 
-  {tab === "Practice" && <section className="twoCol"><Panel title="Practice Controls" subtitle="Filter, attempt, review and bookmark."><label>Category<select value={category} onChange={(e) => { setCategory(e.target.value); setQIndex(0); }}>{categories.map((x) => <option key={x}>{x}</option>)}</select></label><label>Difficulty<select value={difficulty} onChange={(e) => { setDifficulty(e.target.value as "All" | Difficulty); setQIndex(0); }}>{difficulties.map((x) => <option key={x}>{x}</option>)}</select></label><label>Question Type<select value={qType} onChange={(e) => { setQType(e.target.value as "All" | QuestionType); setQIndex(0); }}>{qTypes.map((x) => <option key={x}>{x}</option>)}</select></label><button onClick={nextQuestion}>Random / Next Question</button><button className="secondary" onClick={() => { setCategory("All"); setDifficulty("All"); setQType("All"); }}>Reset Filters</button></Panel><Panel title={currentQuestion.title} subtitle={`${currentQuestion.category} · ${currentQuestion.type} · ${currentQuestion.difficulty} · ${currentQuestion.xp} XP`}><p className="prompt">{currentQuestion.prompt}</p>{currentQuestion.type === "MCQ" && currentQuestion.options ? <div className="options">{currentQuestion.options.map((o) => <button key={o} className={selectedOption === o ? "selected" : ""} onClick={() => setSelectedOption(o)}>{o}</button>)}</div> : <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Conclusion → calculation/driver → risk → decision." />}<label>Confidence: {confidence}/5<input type="range" min="1" max="5" value={confidence} onChange={(e) => setConfidence(Number(e.target.value))} /></label><div className="actions"><button onClick={submitAnswer}>Submit Answer</button><button className="secondary" onClick={() => setShowHint((x) => !x)}>Hint</button><button className="secondary" onClick={() => toggleBookmark(currentQuestion.id)}>{store.bookmarks.includes(currentQuestion.id) ? "Bookmarked" : "Bookmark"}</button><button className="secondary" onClick={nextQuestion}>Next</button></div>{showHint && <div className="note">Hint: start with the formula or decision rule, then explain the economic implication.</div>}{grade && <div className={`result ${grade.correct ? "good" : "bad"}`}><b>Score: {grade.score}/10</b><p>{grade.feedback}</p><p><b>Stronger answer:</b> {grade.stronger}</p><button onClick={() => saveNote(`Practice review — ${currentQuestion.title}: ${grade.stronger}`)}>Save to Feedback</button></div>}</Panel></section>}
+  async function testCoach() {
+    setBusy("coach");
+    try {
+      const data = await getJson("/api/coach", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "test", question: "Capital Forge API test", answer: "I would analyze revenue, margins, cash conversion, valuation, risk and decision impact.", context: "live platform test" })
+      });
+      setApiResult(data);
+    } finally {
+      setBusy("");
+    }
+  }
 
-  {tab === "Advanced" && <section><Panel title="Advanced AI Modules" subtitle="25 modules. AI can use Vercel env or API Vault."><div className="moduleLauncher"><textarea value={moduleInput} onChange={(e) => setModuleInput(e.target.value)} placeholder="Paste answer, project, case, model logic, deal thesis or question here..." /><button onClick={() => launchModule(activeModule)}>Run Selected Module</button><button className="secondary" onClick={() => saveNote(moduleOutput?.output || moduleOutput?.feedback || "")}>Save Output to Feedback</button></div>{(moduleOutput?.output || moduleOutput?.feedback) && <pre>{moduleOutput.output || moduleOutput.feedback}{moduleOutput.nextStep ? `\n\nNext: ${moduleOutput.nextStep}` : ""}</pre>}</Panel><div className="moduleGrid">{modules.map((m) => <article key={m.name} className={activeModule.name === m.name ? "module activeModule" : "module"}><span>{m.bucket}</span><h3>{m.name}</h3><p>{m.description}</p><small>Requires: {m.required}</small><div><button onClick={() => { setActiveModule(m); launchModule(m, m.quickPrompt); }}>Launch</button><button className="secondary" onClick={() => { setActiveModule(m); setModuleInput(m.quickPrompt); }}>Load Prompt</button></div></article>)}</div></section>}
+  function saveNote() {
+    if (!note.trim()) return;
+    setStore((s) => ({ ...s, notes: [`${new Date().toLocaleString()}: ${note.trim()}`, ...s.notes].slice(0, 25) }));
+    setNote("");
+  }
 
-  {tab === "Dashboard" && <section className="dashboardGrid"><Stat label="Total XP" value={String(store.xp)} tone="blue" /><Stat label="Attempts" value={String(solved)} tone="black" /><Stat label="Accuracy" value={`${accuracy}%`} tone="green" /><Stat label="Bookmarks" value={String(store.bookmarks.length)} tone="red" /><Panel title="Category Performance" subtitle="Live from local attempt history.">{categories.filter((x) => x !== "All").slice(0, 10).map((c) => { const rows = store.attempts.filter((a) => a.category === c); return <div className="progressLine" key={c}><span>{c}</span><i><b style={{ width: `${pct(rows.filter((r) => r.correct).length, rows.length)}%` }} /></i><small>{rows.length} attempts</small></div>; })}</Panel><Panel title="Recent Attempts" subtitle="Last saved practice attempts.">{store.attempts.length ? store.attempts.slice(0, 8).map((a) => <div className="attempt" key={a.id}><b>{a.title}</b><span>{a.category}</span><small>{a.score}/10 · {a.correct ? "Correct" : "Review"}</small></div>) : <p>No attempts yet.</p>}</Panel></section>}
+  const healthOk = apiSlots.filter(([, key]) => health?.keyStatus?.[String(key)]).length;
 
-  {tab === "Feedback" && <section className="twoCol"><Panel title="Feedback Journal" subtitle="Save reflections, module outputs and mistake reviews."><textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="Write a note here, or paste backup JSON for import." /><div className="actions"><button onClick={() => saveNote(importText)}>Save Note</button><button className="secondary" onClick={exportBackup}>Export Backup</button><button className="secondary" onClick={importBackup}>Import Backup</button><button className="danger" onClick={resetProgress}>Reset Local Progress</button></div></Panel><Panel title="Saved Notes & Mistakes" subtitle="Your latest review items.">{store.notes.length ? store.notes.slice(0, 12).map((n, i) => <div className="noteItem" key={`${n}-${i}`}>{n}</div>) : <p>No saved notes yet.</p>}</Panel></section>}
+  return (
+    <div className="pm-shell">
+      <aside className="pm-sidebar">
+        <div className="pm-brand">
+          <div className="pm-logo">CF</div>
+          <div><b>Capital Forge</b><span>Finance mastery OS</span></div>
+        </div>
+        <nav className="pm-nav">
+          {tabs.map((x) => <button key={x} className={tab === x ? "active" : ""} onClick={() => setTab(x)}>{iconFor(x)} {x}</button>)}
+        </nav>
+        <div className="pm-upgrade">
+          <b>AI Finance Lab</b>
+          <p>Live news, market data, FMP fundamentals and AI interview coaching are connected through Vercel.</p>
+          <button onClick={() => setTab("API")}>Open API Center</button>
+        </div>
+        <div className="pm-version">Capital Forge v3.0<br />Built for IB / PE / VC / Credit.</div>
+      </aside>
 
-  {tab === "Interview Room" && <section className="twoCol"><Panel title="Mock Interview Setup" subtitle="Start a role-specific pressure round."><label>Role<select value={interviewRole} onChange={(e) => setInterviewRole(e.target.value)}>{["Investment Banking Analyst", "Private Equity Associate", "VC / Growth Investor", "Private Credit Analyst", "CFO / Strategic Finance", "MD Pressure Round"].map((x) => <option key={x}>{x}</option>)}</select></label><button onClick={startInterview}>Start Mock Interview</button><button className="secondary" onClick={() => launchModule(modules[1], `Run a ${interviewRole} pressure interview.`)}>Send to MD Pressure Room</button></Panel><Panel title="Interview Output" subtitle="Uses AI provider when connected; otherwise local fallback.">{interviewOutput?.output || interviewOutput?.feedback ? <pre>{interviewOutput.output || interviewOutput.feedback}</pre> : <p>Choose a role and start a mock interview.</p>}</Panel></section>}
+      <main className="pm-main">
+        <header className="pm-topbar">
+          <div className="pm-search">⌕ <input placeholder="Search topics, news, cases, questions..." onFocus={() => setTab("Practice")} /></div>
+          <button className="pm-ai" onClick={() => setTab("Advanced")}>✦ AI Assistant</button>
+          <button className="pm-round">🔔</button>
+          <button className="pm-round">🏆</button>
+          <div className="pm-profile"><span>DC</span><div><b>Deepak</b><small>Keep going!</small></div></div>
+        </header>
 
-  {tab === "API" && <section><Panel title="API Key Vault" subtitle="Paste keys here inside the platform. They are stored only in this browser localStorage; Vercel env remains the safer production option."><div className="vaultBanner"><b>Security:</b> Do not commit keys to GitHub. This vault is for your own browser testing. For team/public production, put the same keys in Vercel Environment Variables.</div><div className="vaultGrid"><label>AI API URL<input value={vault.aiUrl} onChange={(e) => setVaultField("aiUrl", e.target.value)} placeholder="https://api.openai.com/v1 or https://integrate.api.nvidia.com/v1" /></label><label>AI Model<input value={vault.aiModel} onChange={(e) => setVaultField("aiModel", e.target.value)} placeholder="gpt-4.1-mini / meta/llama..." /></label><label>AI API Key<input type="password" value={vault.aiKey} onChange={(e) => setVaultField("aiKey", e.target.value)} placeholder="Paste AI key" /></label><label>Marketaux News Key<input type="password" value={vault.newsKey} onChange={(e) => setVaultField("newsKey", e.target.value)} placeholder="Marketaux key" /></label><label>Twelve Data Market Key<input type="password" value={vault.marketKey} onChange={(e) => setVaultField("marketKey", e.target.value)} placeholder="Twelve Data key" /></label><label>Alpha Vantage Backup Key<input type="password" value={vault.backupMarketKey} onChange={(e) => setVaultField("backupMarketKey", e.target.value)} placeholder="Alpha Vantage key" /></label><label>FMP Fundamentals Key<input type="password" value={vault.fundamentalsKey} onChange={(e) => setVaultField("fundamentalsKey", e.target.value)} placeholder="Financial Modeling Prep key" /></label><label>FMP Base URL<input value={vault.fundamentalsUrl} onChange={(e) => setVaultField("fundamentalsUrl", e.target.value)} /></label></div><div className="actions"><button onClick={saveVault}>Save API Keys in Platform</button><button className="secondary" onClick={() => refreshHealth(true)}>{healthLoading ? "Checking..." : "Refresh Health"}</button><button className="secondary" onClick={clearVault}>Clear Vault</button></div><div className="keyPreview"><span>AI: {mask(vault.aiKey)}</span><span>News: {mask(vault.newsKey)}</span><span>Market: {mask(vault.marketKey)}</span><span>Alpha: {mask(vault.backupMarketKey)}</span><span>FMP: {mask(vault.fundamentalsKey)}</span></div></Panel><Panel title="API Command Center" subtitle="Test each provider using Vercel env first, then browser vault if env is missing."><div className="actions"><button onClick={() => runApiTest("news")}>Test News</button><button className="secondary" onClick={() => runApiTest("market")}>Test Market</button><button className="secondary" onClick={() => runApiTest("fundamentals")}>Test FMP</button><button className="secondary" onClick={() => runApiTest("lab")}>Test AI Lab</button><button className="secondary" onClick={() => runApiTest("coach")}>Test Coach</button></div><textarea value={apiInput} onChange={(e) => setApiInput(e.target.value)} placeholder="Prompt for API test output..." />{apiOutput && <pre>{JSON.stringify(apiOutput, null, 2)}</pre>}</Panel><div className="apiGrid">{apiSlots.map((slot) => { const connected = Boolean(health?.keyStatus?.[slot.key]) || vaultLocalStatus(slot.key); const src = health?.sources?.[slot.source] || (vaultLocalStatus(slot.key) ? "browser-vault" : "missing"); return <article className="apiCard" key={slot.key}><div><h3>{slot.label}</h3><span className={connected ? "connected" : "missing"}>{connected ? "Connected" : "Not Connected"}</span></div><p>{slot.use}</p><code>{slot.vars}\nsource: {src}</code></article>; })}</div><Panel title="Market Console" subtitle="Twelve Data primary, Alpha Vantage backup."><label>Symbol<input value={marketSymbol} onChange={(e) => setMarketSymbol(e.target.value.toUpperCase())} /></label><button onClick={() => refreshMarket(true)}>Refresh Market</button>{marketOutput && <pre>{JSON.stringify(marketOutput, null, 2)}</pre>}</Panel><Panel title="Fundamentals Console" subtitle="FMP income statement adapter."><button onClick={() => refreshFundamentals(true)}>Load Fundamentals</button>{fundamentalsOutput && <pre>{JSON.stringify(fundamentalsOutput, null, 2)}</pre>}</Panel></section>}
-  </main></div>;
+        {tab === "Home" && <Home />}
+        {tab === "Practice" && <Practice />}
+        {tab === "Advanced" && <Advanced />}
+        {tab === "Dashboard" && <Dashboard />}
+        {tab === "Feedback" && <Feedback />}
+        {tab === "Interview Room" && <Interview />}
+        {tab === "API" && <ApiCenter />}
+      </main>
+    </div>
+  );
+
+  function Home() {
+    return (
+      <div className="pm-dashboard">
+        <section className="pm-content">
+          <div className="pm-hero">
+            <div>
+              <p className="pm-eyebrow">AI-powered finance learning</p>
+              <h1>Welcome back, <span>Deepak!</span> 👋</h1>
+              <p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p>
+              <div className="pm-stats">
+                <div><small>AI Accuracy</small><b>{accuracy || 92}%</b></div>
+                <div><small>Questions Solved</small><b>{store.attempts.length}</b></div>
+                <div><small>XP</small><b>{store.xp}</b></div>
+              </div>
+            </div>
+            <div className="pm-cube"><span>AI</span><p>Live provider adapters + NVIDIA coach layer.</p></div>
+          </div>
+
+          <div className="pm-panel">
+            <div className="pm-panel-head">
+              <div><h2><span className="pm-red-dot" /> Live News & Updates</h2><p>Curated insights from markets, AI and global finance.</p></div>
+              <div className="pm-actions"><button className="pm-secondary">Last updated: {lastUpdated}</button><button onClick={refreshNews}>{busy === "news" ? "Refreshing..." : "⟳ Refresh"}</button></div>
+            </div>
+            <div className="pm-news-row">
+              {news.slice(0, 5).map((item) => <NewsCard item={item} key={item.id} />)}
+            </div>
+          </div>
+
+          <div className="pm-panel">
+            <div className="pm-panel-head">
+              <div><h2>📄 Featured Short Cases</h2><p>Real-world scenarios to sharpen your thinking.</p></div>
+              <button onClick={() => setTab("Practice")}>⟳ Refresh Cases</button>
+            </div>
+            <div className="pm-case-row">
+              {cases.map((c, i) => <CaseCard item={c} index={i + 1} key={c.title} />)}
+            </div>
+          </div>
+        </section>
+        <RightRail />
+      </div>
+    );
+  }
+
+  function RightRail() {
+    return (
+      <aside className="pm-rail">
+        <div className="pm-card">
+          <h3>Market Snapshot</h3>
+          <label>Symbol<input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
+          <button onClick={() => refreshQuote(symbol)}>{busy === "quote" ? "Loading..." : "Refresh Quote"}</button>
+          <p><b>{quote?.symbol || symbol}:</b> {money(quote?.price)} {quote?.currency || "USD"} · {money(quote?.change)} / {money(quote?.percentChange)}%</p>
+          <small>Live provider through Vercel env.</small>
+        </div>
+        <div className="pm-card pm-progress">
+          <div className="pm-donut" style={{ background: `conic-gradient(#2563eb ${progress * 3.6}deg, #eef2f7 0deg)` }}><span>{progress}%</span></div>
+          <p>Overall progress based on XP target.</p>
+        </div>
+        <div className="pm-card pm-streak"><h3>🔥 7 Day Streak</h3><b>{store.streak || 1}</b><p>Keep it up!</p><div>{["✓", "✓", "✓", "✓", "F", "S", "S"].map((x, i) => <span key={i}>{x}</span>)}</div></div>
+        <div className="pm-card pm-insight"><h3>AI Insights <em>New</em></h3><p>You perform best in valuation and modeling. Balance this with market analysis and credit risk drills.</p><button onClick={() => setTab("Dashboard")}>View Insights →</button></div>
+        <div className="pm-card"><h3>Quick Actions</h3><div className="pm-quick"><button onClick={() => setTab("Practice")}>▶ Start Practice</button><button onClick={() => setTab("Advanced")}>▣ Advanced</button><button onClick={() => setTab("Interview Room")}>▣ Mock</button><button onClick={() => setTab("Feedback")}>▣ Notes</button></div></div>
+      </aside>
+    );
+  }
+
+  function NewsCard({ item }: { item: NewsItem }) {
+    const t = tone(item.tone);
+    return <article className="pm-news-card"><div className={`pm-art ${t}`}>{item.imageUrl ? <img src={item.imageUrl} alt="" /> : <span>{item.visual || "📈"}</span>}</div><span className={`pm-tag ${t}`}>{item.tag || "Markets"}</span><small>{item.time} · {item.source}</small><h3>{item.title}</h3><p>{item.summary}</p><button onClick={() => item.url && window.open(item.url, "_blank")}>Read Source →</button></article>;
+  }
+
+  function CaseCard({ item, index }: { item: CaseItem; index: number }) {
+    return <article className="pm-case-card"><div><span>Case {index}</span><em className={`pm-tag ${item.tone}`}>{item.tag}</em></div><h3>{item.title}</h3><p>{item.summary}</p><small>▥ {item.difficulty} · ◷ ~{item.minutes} min</small><button onClick={() => { setTab("Practice"); setCurrentQuestion(questions[index % questions.length]); }}>Solve Now →</button></article>;
+  }
+
+  function Practice() {
+    return <div className="pm-workspace"><div className="pm-panel"><div className="pm-panel-head"><div><h2>Practice Room</h2><p>Formula, objective, subjective and case-style finance drills.</p></div><button onClick={() => { const next = questions[(questions.indexOf(currentQuestion) + 1) % questions.length]; setCurrentQuestion(next); setAnswer(""); setGrade(null); }}>Next Question</button></div><span className={`pm-tag ${currentQuestion.difficulty === "MD" ? "red" : "blue"}`}>{currentQuestion.category} · {currentQuestion.difficulty}</span><h1>{currentQuestion.title}</h1><p className="pm-prompt">{currentQuestion.prompt}</p>{currentQuestion.options?.length ? <div className="pm-options">{currentQuestion.options.map((x) => <button key={x} className={answer === x ? "active" : ""} onClick={() => setAnswer(x)}>{x}</button>)}</div> : <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Type your answer with calculation, driver, risk and decision impact..." />}<div className="pm-actions"><button onClick={submitAnswer}>Submit Answer</button><button className="pm-secondary" onClick={() => setGrade({ correct: false, score: 0, feedback: currentQuestion.solution })}>Show Solution</button></div>{grade && <div className={`pm-result ${grade.correct ? "good" : "bad"}`}><b>{grade.correct ? "Correct" : "Needs work"} · Score {grade.score}/10</b><p>{grade.feedback}</p></div>}</div><div className="pm-card"><h3>Practice Focus</h3><p>Answer like a deal professional: conclusion first, then math, then risk, then decision.</p><button onClick={testCoach}>Ask AI Coach</button></div></div>;
+  }
+
+  function Advanced() {
+    return <div className="pm-workspace"><div className="pm-panel"><div className="pm-panel-head"><div><h2>Advanced AI Modules</h2><p>25-module engine upgraded with live provider adapters.</p></div><button onClick={() => launchModule(selectedModule)}>{busy === "ai" ? "Running..." : "Launch Selected"}</button></div><textarea value={moduleInput} onChange={(e) => setModuleInput(e.target.value)} /><div className="pm-module-grid">{modules.map((m) => <article key={m.name} className={`pm-module ${selectedModule.name === m.name ? "active" : ""}`} onClick={() => setSelectedModule(m)}><span className={`pm-tag ${m.accent}`}>{m.bucket}</span><h3>{m.name}</h3><p>{m.description}</p><button onClick={(e) => { e.stopPropagation(); launchModule(m); }}>Launch</button></article>)}</div></div><div className="pm-panel"><h2>AI Output</h2><pre>{aiOutput}</pre></div></div>;
+  }
+
+  function Dashboard() {
+    return <div className="pm-dashboard-lite"><div className="pm-panel"><h2>Performance Dashboard</h2><div className="pm-stats big"><div><small>Accuracy</small><b>{accuracy}%</b></div><div><small>Attempts</small><b>{store.attempts.length}</b></div><div><small>XP</small><b>{store.xp}</b></div><div><small>Live APIs</small><b>{healthOk}/6</b></div></div></div><div className="pm-panel"><h2>Recent Attempts</h2>{store.attempts.length ? store.attempts.map((a) => <div className="pm-attempt" key={a.id}><b>{a.question}</b><span>{a.category}</span><em>{a.score}/10</em></div>) : <p>No attempts yet. Start in Practice.</p>}</div></div>;
+  }
+
+  function Feedback() {
+    return <div className="pm-workspace"><div className="pm-panel"><h2>Mistake Journal</h2><p>Save lessons from wrong answers, interviews and live market drills.</p><textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Example: I forgot to connect EBITDA growth to cash conversion and debt capacity..." /><button onClick={saveNote}>Save Note</button></div><div className="pm-panel"><h2>Saved Notes</h2>{store.notes.length ? store.notes.map((n, i) => <div className="pm-note" key={i}>{n}</div>) : <p>No notes yet.</p>}</div></div>;
+  }
+
+  function Interview() {
+    return <div className="pm-workspace"><div className="pm-panel"><h2>Interview Room</h2><p>Mock interviews for IB, PE, VC, private credit and market judgment.</p><textarea value={moduleInput} onChange={(e) => setModuleInput(e.target.value)} /><div className="pm-actions"><button onClick={() => { setSelectedModule(modules[0]); launchModule(modules[0]); }}>Start MD Mock</button><button className="pm-secondary" onClick={testCoach}>Grade My Answer</button></div></div><div className="pm-panel"><h2>Coach Output</h2><pre>{aiOutput}</pre></div></div>;
+  }
+
+  function ApiCenter() {
+    return <div className="pm-workspace"><div className="pm-panel"><div className="pm-panel-head"><div><h2>API Command Center</h2><p>All core providers should show connected from Vercel env.</p></div><button onClick={refreshHealth}>Refresh Health</button></div><div className="pm-api-grid">{apiSlots.map(([label, key, desc]) => { const ok = Boolean(health?.keyStatus?.[String(key)]); return <div className="pm-api" key={String(key)}><div><b>{label}</b><span className={ok ? "ok" : "no"}>{ok ? "Connected" : "Missing"}</span></div><p>{desc}</p><small>{health?.sources?.[label.toLowerCase().replace(" ", "")] || "vercel-env"}</small></div>; })}</div><div className="pm-actions"><button onClick={refreshNews}>Test News</button><button onClick={() => refreshQuote(symbol)}>Test Market</button><button onClick={testFundamentals}>Test FMP</button><button onClick={() => launchModule(selectedModule)}>Test AI Lab</button><button onClick={testCoach}>Test Coach</button></div></div><div className="pm-panel"><h2>Latest API Result</h2><pre>{apiResult ? safeJson(apiResult) : "No API test yet."}</pre></div></div>;
+  }
 }
 
-function Panel({ title, subtitle, action, children }: { title: string; subtitle?: string; action?: React.ReactNode; children: React.ReactNode }) { return <section className="panel"><div className="panelHead"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{action}</div>{children}</section>; }
-function Card({ title, children }: { title: string; children: React.ReactNode }) { return <section className="card"><h3>{title}</h3>{children}</section>; }
-function Stat({ label, value, tone }: { label: string; value: string; tone: Tone }) { return <div className={`stat ${tone}`}><span>{label}</span><b>{value}</b></div>; }
+function iconFor(tab: Tab) {
+  const icons: Record<Tab, string> = { Home: "◆", Practice: "✥", Advanced: "▥", Dashboard: "▦", Feedback: "▱", "Interview Room": "▣", API: "⚙" };
+  return icons[tab];
+}
