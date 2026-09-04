@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 type Quote = {
   symbol: string;
   name?: string;
@@ -56,16 +58,14 @@ function buildEvents(quote: Quote, provider: string, live: boolean) {
   ];
 }
 
-async function fetchTwelveData(symbol: string): Promise<Quote> {
-  const apiKey = process.env.MARKET_DATA_API_KEY;
+async function fetchTwelveData(symbol: string, apiKey: string, apiUrl?: string | null): Promise<Quote> {
   if (!apiKey) throw new Error("MARKET_DATA_API_KEY missing");
-
-  const base = (process.env.MARKET_DATA_API_URL || "https://api.twelvedata.com").replace(/\/$/, "");
+  const base = (apiUrl || "https://api.twelvedata.com").replace(/\/$/, "");
   const url = new URL(`${base}/quote`);
   url.searchParams.set("symbol", symbol);
   url.searchParams.set("apikey", apiKey);
 
-  const response = await fetch(url, { next: { revalidate: 60 } });
+  const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Twelve Data ${response.status}`);
   const data = await response.json() as Record<string, unknown>;
   if (data.status === "error") throw new Error(String(data.message || "Twelve Data error"));
@@ -87,16 +87,14 @@ async function fetchTwelveData(symbol: string): Promise<Quote> {
   };
 }
 
-async function fetchAlphaVantage(symbol: string): Promise<Quote> {
-  const apiKey = process.env.BACKUP_MARKET_API_KEY || process.env.ALPHA_VANTAGE_API_KEY;
+async function fetchAlphaVantage(symbol: string, apiKey: string): Promise<Quote> {
   if (!apiKey) throw new Error("BACKUP_MARKET_API_KEY missing");
-
   const url = new URL("https://www.alphavantage.co/query");
   url.searchParams.set("function", "GLOBAL_QUOTE");
   url.searchParams.set("symbol", symbol);
   url.searchParams.set("apikey", apiKey);
 
-  const response = await fetch(url, { next: { revalidate: 120 } });
+  const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Alpha Vantage ${response.status}`);
   const data = await response.json() as { "Global Quote"?: Record<string, string>; Note?: string; Information?: string };
   if (data.Note || data.Information) throw new Error(data.Note || data.Information || "Alpha Vantage limit/error");
@@ -106,7 +104,6 @@ async function fetchAlphaVantage(symbol: string): Promise<Quote> {
   return {
     symbol: quote["01. symbol"] || symbol.toUpperCase(),
     name: "Alpha Vantage Quote",
-    exchange: undefined,
     currency: "USD",
     price: toNumber(quote["05. price"]),
     change: toNumber(quote["09. change"]),
@@ -123,20 +120,24 @@ async function fetchAlphaVantage(symbol: string): Promise<Quote> {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = (searchParams.get("symbol") || "AAPL").trim().toUpperCase();
-  const provider = (process.env.MARKET_DATA_PROVIDER || "twelvedata").toLowerCase();
+  const provider = (process.env.MARKET_DATA_PROVIDER || request.headers.get("x-capital-forge-market-provider") || "twelvedata").toLowerCase();
+  const primaryKey = process.env.MARKET_DATA_API_KEY || request.headers.get("x-capital-forge-market-key") || "";
+  const primaryUrl = process.env.MARKET_DATA_API_URL || request.headers.get("x-capital-forge-market-url") || "https://api.twelvedata.com";
+  const backupKey = process.env.BACKUP_MARKET_API_KEY || process.env.ALPHA_VANTAGE_API_KEY || request.headers.get("x-capital-forge-backup-market-key") || "";
 
   try {
     if (provider === "twelvedata") {
-      const quote = await fetchTwelveData(symbol);
-      return NextResponse.json({ configured: true, provider: "twelvedata", symbol, quote, events: buildEvents(quote, "Twelve Data", true), generatedAt: new Date().toISOString() });
+      const quote = await fetchTwelveData(symbol, primaryKey, primaryUrl);
+      return NextResponse.json({ configured: true, provider: "twelvedata", source: process.env.MARKET_DATA_API_KEY ? "vercel-env" : "browser-vault", symbol, quote, events: buildEvents(quote, "Twelve Data", true), generatedAt: new Date().toISOString() });
     }
     throw new Error(`Unsupported primary market provider: ${provider}`);
   } catch (primaryError) {
     try {
-      const quote = await fetchAlphaVantage(symbol);
+      const quote = await fetchAlphaVantage(symbol, backupKey);
       return NextResponse.json({
         configured: true,
         provider: "alphavantage",
+        source: process.env.BACKUP_MARKET_API_KEY || process.env.ALPHA_VANTAGE_API_KEY ? "vercel-env" : "browser-vault",
         backup: true,
         symbol,
         primaryWarning: primaryError instanceof Error ? primaryError.message : "Primary market provider failed",
@@ -149,6 +150,7 @@ export async function GET(request: Request) {
       return NextResponse.json({
         configured: false,
         provider,
+        source: "fallback",
         warning: backupError instanceof Error ? backupError.message : "Market providers unavailable. Returning demo challenges.",
         quote,
         events: buildEvents(quote, "Capital Forge Demo", false),
