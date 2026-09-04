@@ -8,6 +8,7 @@ export function proxy(request: NextRequest) {
   const destination =
     open === "Dashboard" ? "/dashboard" :
     open === "Feedback" ? "/feedback" :
+    open === "Interview Room" ? "/interview" :
     open === "Home" || !open ? "/home" :
     null;
 
