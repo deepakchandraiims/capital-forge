@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 type MarketauxItem = {
   uuid?: string;
   title?: string;
@@ -13,43 +15,16 @@ type MarketauxItem = {
 };
 
 const demoNews = [
-  {
-    id: "demo-news-1",
-    tag: "Markets",
-    tone: "blue",
-    title: "Markets update unavailable — practice mode active",
-    summary: "Connect Marketaux in Vercel env to replace this with live financial news.",
-    time: "Demo",
-    visual: "📈",
-    source: "Capital Forge Demo"
-  },
-  {
-    id: "demo-news-2",
-    tag: "PE / M&A",
-    tone: "red",
-    title: "Sponsor entry multiples remain a key underwriting variable",
-    summary: "Use this fallback card to practice entry multiple, leverage and downside return sensitivity.",
-    time: "Demo",
-    visual: "🏦",
-    source: "Capital Forge Demo"
-  },
-  {
-    id: "demo-news-3",
-    tag: "Credit",
-    tone: "green",
-    title: "Private credit case mode is ready",
-    summary: "Test DSCR, covenants, recovery and refinancing risk until a live provider is connected.",
-    time: "Demo",
-    visual: "🧾",
-    source: "Capital Forge Demo"
-  }
+  { id: "demo-news-1", tag: "Markets", tone: "blue", title: "Markets update unavailable — practice mode active", summary: "Connect Marketaux in the API tab or Vercel env to replace this with live financial news.", time: "Demo", visual: "📈", source: "Capital Forge Demo" },
+  { id: "demo-news-2", tag: "PE / M&A", tone: "red", title: "Sponsor entry multiples remain a key underwriting variable", summary: "Use this fallback card to practice entry multiple, leverage and downside return sensitivity.", time: "Demo", visual: "🏦", source: "Capital Forge Demo" },
+  { id: "demo-news-3", tag: "Credit", tone: "green", title: "Private credit case mode is ready", summary: "Test DSCR, covenants, recovery and refinancing risk until a live provider is connected.", time: "Demo", visual: "🧾", source: "Capital Forge Demo" }
 ];
 
 function toneFor(title: string) {
   const lower = title.toLowerCase();
-  if (lower.includes("fall") || lower.includes("risk") || lower.includes("debt") || lower.includes("cuts")) return "red";
-  if (lower.includes("growth") || lower.includes("raise") || lower.includes("rally") || lower.includes("gain")) return "green";
-  if (lower.includes("ai") || lower.includes("tech")) return "black";
+  if (lower.includes("fall") || lower.includes("risk") || lower.includes("debt") || lower.includes("cuts") || lower.includes("slump")) return "red";
+  if (lower.includes("growth") || lower.includes("raise") || lower.includes("rally") || lower.includes("gain") || lower.includes("beats")) return "green";
+  if (lower.includes("ai") || lower.includes("tech") || lower.includes("chip")) return "black";
   return "blue";
 }
 
@@ -57,7 +32,7 @@ function tagFor(item: MarketauxItem) {
   const text = `${item.title || ""} ${item.description || ""}`.toLowerCase();
   if (text.includes("private equity") || text.includes("acquisition") || text.includes("merger") || text.includes("deal")) return "PE / M&A";
   if (text.includes("credit") || text.includes("debt") || text.includes("bond")) return "Credit";
-  if (text.includes("ai") || text.includes("semiconductor") || text.includes("technology")) return "AI & Tech";
+  if (text.includes("ai") || text.includes("semiconductor") || text.includes("technology") || text.includes("chip")) return "AI & Tech";
   if (text.includes("fed") || text.includes("inflation") || text.includes("rate")) return "Macro";
   return item.entities?.[0]?.industry || "Markets";
 }
@@ -75,8 +50,11 @@ function relativeTime(value?: string) {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const provider = (process.env.NEWS_API_PROVIDER || "marketaux").toLowerCase();
-  const apiKey = process.env.NEWS_API_KEY;
+  const headerProvider = request.headers.get("x-capital-forge-news-provider");
+  const headerUrl = request.headers.get("x-capital-forge-news-url");
+  const headerKey = request.headers.get("x-capital-forge-news-key");
+  const provider = (process.env.NEWS_API_PROVIDER || headerProvider || "marketaux").toLowerCase();
+  const apiKey = process.env.NEWS_API_KEY || headerKey || "";
   const limit = Math.min(10, Number(searchParams.get("limit") || 8));
   const symbols = searchParams.get("symbols") || "AAPL,MSFT,NVDA,TSLA,JPM,GS,SPY,QQQ";
 
@@ -84,20 +62,21 @@ export async function GET(request: Request) {
     return NextResponse.json({
       configured: false,
       provider,
+      source: apiKey ? "unsupported" : "demo",
       warning: !apiKey ? "NEWS_API_KEY missing. Returning demo news." : "Only Marketaux is enabled in this adapter. Returning demo news.",
       news: demoNews
     });
   }
 
   try {
-    const url = new URL(process.env.NEWS_API_URL || "https://api.marketaux.com/v1/news/all");
+    const url = new URL(headerUrl || process.env.NEWS_API_URL || "https://api.marketaux.com/v1/news/all");
     url.searchParams.set("api_token", apiKey);
     url.searchParams.set("language", "en");
     url.searchParams.set("limit", String(limit));
     url.searchParams.set("symbols", symbols);
     url.searchParams.set("filter_entities", "true");
 
-    const response = await fetch(url, { next: { revalidate: 300 } });
+    const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`Marketaux ${response.status}`);
 
     const payload = (await response.json()) as { data?: MarketauxItem[]; error?: unknown };
@@ -119,11 +98,12 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({ configured: true, provider: "marketaux", news, generatedAt: new Date().toISOString() });
+    return NextResponse.json({ configured: true, provider: "marketaux", source: process.env.NEWS_API_KEY ? "vercel-env" : "browser-vault", news, generatedAt: new Date().toISOString() });
   } catch (error) {
     return NextResponse.json({
       configured: false,
       provider: "marketaux",
+      source: "fallback",
       warning: error instanceof Error ? error.message : "Marketaux request failed. Returning demo news.",
       news: demoNews
     });
