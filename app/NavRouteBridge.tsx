@@ -17,6 +17,11 @@ export default function NavRouteBridge() {
         event.stopPropagation();
         window.location.assign("/dashboard");
       }
+      if (tab === "Feedback" && window.location.pathname !== "/feedback") {
+        event.preventDefault();
+        event.stopPropagation();
+        window.location.assign("/feedback");
+      }
     };
 
     document.addEventListener("click", handleClick, true);
