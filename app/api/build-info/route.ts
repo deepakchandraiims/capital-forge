@@ -10,8 +10,8 @@ export async function GET() {
     deploymentUrl: process.env.VERCEL_URL || null,
     environment: process.env.VERCEL_ENV || process.env.NODE_ENV || null,
     region: process.env.VERCEL_REGION || null,
-    routingArchitecture: "next16-proxy-plus-direct-route-bridge-v2",
-    expectedRoutes: ["/home", "/dashboard", "/feedback"],
+    routingArchitecture: "next16-proxy-plus-direct-route-bridge-v3",
+    expectedRoutes: ["/home", "/dashboard", "/feedback", "/interview", "/interview/session/:id", "/interview/session/:id/results"],
     generatedAt: new Date().toISOString()
   }, {
     headers: {
