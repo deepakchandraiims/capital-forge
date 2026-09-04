@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./prepmate.css";
+import "./advanced.css";
 
 export const metadata: Metadata = {
   title: "Capital Forge",
