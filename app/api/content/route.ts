@@ -5,6 +5,13 @@ export const dynamic = "force-dynamic";
 
 type ContentType = "all" | "practice" | "concepts" | "cases" | "interview";
 
+type Taxonomy = {
+  topic_name?: string | null;
+  topic_slug?: string | null;
+  domain_name?: string | null;
+  domain_slug?: string | null;
+};
+
 function normalizeType(value: string | null): ContentType {
   if (value === "practice" || value === "concepts" || value === "cases" || value === "interview") return value;
   return "all";
@@ -35,6 +42,28 @@ export async function GET(request: Request) {
   const limitParam = Number(requestUrl.searchParams.get("limit") || "1000");
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.trunc(limitParam), 1), 1000) : 1000;
 
+  const [{ data: topics }, { data: domains }] = await Promise.all([
+    supabase.from("cf_topics").select("id,name,slug,domain_id"),
+    supabase.from("cf_domains").select("id,name,slug")
+  ]);
+
+  const domainById = new Map((domains || []).map((d: any) => [d.id, d]));
+  const taxonomyByTopic = new Map<string, Taxonomy>();
+  for (const topic of topics || []) {
+    const domain: any = domainById.get((topic as any).domain_id);
+    taxonomyByTopic.set((topic as any).id, {
+      topic_name: (topic as any).name || null,
+      topic_slug: (topic as any).slug || null,
+      domain_name: domain?.name || null,
+      domain_slug: domain?.slug || null
+    });
+  }
+
+  const enrich = (rows: any[]) => rows.map((row: any) => ({
+    ...row,
+    ...(row.topic_id ? (taxonomyByTopic.get(row.topic_id) || {}) : {})
+  }));
+
   const result: Record<string, unknown> = {
     ok: true,
     source: "supabase-canonical",
@@ -46,25 +75,23 @@ export async function GET(request: Request) {
   if (type === "all" || type === "concepts") {
     const { data, error } = await supabase.from("cf_concepts").select("*").eq("status", "published").order("source_record_key", { ascending: true }).limit(limit);
     if (error) return NextResponse.json({ ok: false, stage: "concepts", error: error.message }, { status: 500 });
-    result.concepts = data || [];
+    result.concepts = enrich(data || []);
   }
 
-  if (type === "all" || type === "practice") {
-    const { data, error } = await supabase.from("cf_questions").select("*").eq("status", "published").eq("origin_content_type", "question").order("source_record_key", { ascending: true }).limit(limit);
-    if (error) return NextResponse.json({ ok: false, stage: "practice", error: error.message }, { status: 500 });
-    result.practice = data || [];
+  if (type === "all" || type === "practice" || type === "interview") {
+    const { data, error } = await supabase.from("cf_questions").select("*").eq("status", "published").order("source_record_key", { ascending: true }).limit(limit);
+    if (error) return NextResponse.json({ ok: false, stage: "questions", error: error.message }, { status: 500 });
+    const allQuestions = enrich(data || []);
+    const interview = allQuestions.filter((row: any) => row.origin_content_type === "interview_question");
+    const practice = allQuestions.filter((row: any) => row.origin_content_type !== "interview_question");
+    if (type === "all" || type === "practice") result.practice = practice;
+    if (type === "all" || type === "interview") result.interview = interview;
   }
 
   if (type === "all" || type === "cases") {
     const { data, error } = await supabase.from("cf_cases").select("*").eq("status", "published").order("source_record_key", { ascending: true }).limit(limit);
     if (error) return NextResponse.json({ ok: false, stage: "cases", error: error.message }, { status: 500 });
-    result.cases = data || [];
-  }
-
-  if (type === "all" || type === "interview") {
-    const { data, error } = await supabase.from("cf_questions").select("*").eq("status", "published").eq("origin_content_type", "interview_question").order("source_record_key", { ascending: true }).limit(limit);
-    if (error) return NextResponse.json({ ok: false, stage: "interview", error: error.message }, { status: 500 });
-    result.interview = data || [];
+    result.cases = enrich(data || []);
   }
 
   const counts: Record<string, number> = {};
