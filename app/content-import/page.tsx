@@ -18,36 +18,90 @@ type ImportResult = {
   note?: string;
 };
 
+type Preview = {
+  total: number;
+  calculations: number;
+  cases: number;
+  interview: number;
+};
+
 export default function ContentImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [secret, setSecret] = useState("");
-  const [batchName, setBatchName] = useState("CF-FULL-EXPORT-20260905-001");
+  const [batchName, setBatchName] = useState("CF-V2-2000-20260905-001");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [preview, setPreview] = useState<Preview>({ total: 0, calculations: 0, cases: 0, interview: 0 });
 
   const ready = useMemo(() => Boolean(file && secret.trim() && !busy), [file, secret, busy]);
+
+  async function inspectFile(nextFile: File | null) {
+    setFile(nextFile);
+    setResult(null);
+    setMessage("");
+    setPreview({ total: 0, calculations: 0, cases: 0, interview: 0 });
+    if (!nextFile) return;
+
+    try {
+      const text = await nextFile.text();
+      const payload = JSON.parse(text);
+      const rows = Array.isArray(payload) ? payload : payload?.objects;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        throw new Error("The selected file does not contain a staging array or an objects array.");
+      }
+      if (rows.length > 5000) {
+        throw new Error(`This protected importer accepts up to 5,000 objects per batch. Found ${rows.length}.`);
+      }
+
+      const keys = rows.map((row: any) => String(row?.source_record_key || "")).filter(Boolean);
+      if (keys.length !== rows.length || new Set(keys).size !== rows.length) {
+        throw new Error("Every object must have one non-empty unique source_record_key.");
+      }
+
+      const calculations = rows.filter((row: any) => Boolean(row?.raw_content?.calculation_required ?? row?.calculation_required)).length;
+      const cases = rows.filter((row: any) => (row?.raw_content?.origin_content_type || row?.content_type) === "decision_case" || row?.content_type === "case").length;
+      const interview = rows.filter((row: any) => (row?.raw_content?.origin_content_type || row?.content_type) === "interview_question" || row?.content_type === "interview_question").length;
+      setPreview({ total: rows.length, calculations, cases, interview });
+      setMessage(`Ready to stage ${rows.length.toLocaleString()} objects. Nothing will be auto-published.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   async function runImport() {
     if (!file || !secret.trim()) return;
     setBusy(true);
-    setMessage("Reading private manifest locally…");
+    setMessage("Reading the private staging payload locally…");
     setResult(null);
     try {
       const text = await file.text();
       const payload = JSON.parse(text);
       const rows = Array.isArray(payload) ? payload : payload?.objects;
-      if (!Array.isArray(rows) || rows.length !== 605) {
-        throw new Error(`This importer requires the complete 605-object manifest. Found ${Array.isArray(rows) ? rows.length : 0}.`);
+      if (!Array.isArray(rows) || rows.length === 0) {
+        throw new Error("The selected file does not contain a staging array or an objects array.");
       }
-      setMessage("Uploading 605 normalized objects to the private staging pipeline…");
+      if (rows.length > 5000) {
+        throw new Error(`This protected importer accepts up to 5,000 objects per batch. Found ${rows.length}.`);
+      }
+
+      const keys = rows.map((row: any) => String(row?.source_record_key || "")).filter(Boolean);
+      if (keys.length !== rows.length || new Set(keys).size !== rows.length) {
+        throw new Error("Every object must have one non-empty unique source_record_key.");
+      }
+
+      setMessage(`Uploading ${rows.length.toLocaleString()} normalized objects to the private staging pipeline…`);
       const response = await fetch("/api/admin/content-import", {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-capital-forge-admin": secret.trim(),
         },
-        body: JSON.stringify({ batchName: batchName.trim() || "CF-FULL-EXPORT-20260905-001", payload }),
+        body: JSON.stringify({
+          batchName: batchName.trim() || "CF-CONTENT-IMPORT-MANUAL",
+          filename: file.name,
+          payload,
+        }),
       });
       const data = (await response.json()) as ImportResult;
       setResult(data);
@@ -66,15 +120,15 @@ export default function ContentImportPage() {
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: "inline-flex", borderRadius: 999, background: "#eaf2ff", color: "#1457d9", padding: "7px 11px", fontWeight: 800, fontSize: 12 }}>CAPITAL FORGE CONTENT OS</div>
           <h1 style={{ margin: "14px 0 6px", fontSize: 38, letterSpacing: "-.04em" }}>Private Content Import</h1>
-          <p style={{ color: "#667085", lineHeight: 1.6, maxWidth: 760 }}>Upload the private normalized JSON manifest generated from the Capital Forge Full Content Export. The browser reads the file locally and sends it to the protected server-side importer. The source PDF and manifest are never committed to the public GitHub repository.</p>
+          <p style={{ color: "#667085", lineHeight: 1.6, maxWidth: 760 }}>Upload a private normalized JSON staging payload. The browser reads the file locally and sends it to the protected server-side importer. Source datasets and manifests are never committed to the public GitHub repository.</p>
         </div>
 
         <section style={{ background: "white", border: "1px solid #e4e7ec", borderRadius: 22, padding: 24, boxShadow: "0 18px 50px rgba(16,24,40,.06)" }}>
           <div style={{ display: "grid", gap: 18 }}>
             <label style={{ display: "grid", gap: 8, fontWeight: 800 }}>
-              1. Normalized manifest or staging payload
-              <input type="file" accept="application/json,.json" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ border: "1px solid #d0d5dd", borderRadius: 14, padding: 14, background: "#fff" }} />
-              <small style={{ color: "#667085", fontWeight: 500 }}>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : "Use capital_forge_export_staging_payload.json from the private import bundle."}</small>
+              1. Normalized staging payload
+              <input type="file" accept="application/json,.json" onChange={(e) => inspectFile(e.target.files?.[0] || null)} style={{ border: "1px solid #d0d5dd", borderRadius: 14, padding: 14, background: "#fff" }} />
+              <small style={{ color: "#667085", fontWeight: 500 }}>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : "Use a Capital Forge staging-payload JSON file."}</small>
             </label>
 
             <label style={{ display: "grid", gap: 8, fontWeight: 800 }}>
@@ -88,13 +142,18 @@ export default function ContentImportPage() {
               <small style={{ color: "#667085", fontWeight: 500 }}>The secret is sent only in the request header and is not stored by this page.</small>
             </label>
 
-            <button onClick={runImport} disabled={!ready} style={{ border: 0, borderRadius: 14, padding: "14px 18px", fontWeight: 900, background: ready ? "#1769ff" : "#cfd8e8", color: "white", cursor: ready ? "pointer" : "not-allowed" }}>{busy ? "Importing…" : "Stage 605 Objects →"}</button>
+            <button onClick={runImport} disabled={!ready} style={{ border: 0, borderRadius: 14, padding: "14px 18px", fontWeight: 900, background: ready ? "#1769ff" : "#cfd8e8", color: "white", cursor: ready ? "pointer" : "not-allowed" }}>{busy ? "Importing…" : `Stage ${preview.total ? preview.total.toLocaleString() : "Content"} Objects →`}</button>
           </div>
         </section>
 
-        <section style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 14 }}>
-          {[ ["105", "Decision cases"], ["500", "Core practice items"], ["0", "Auto-published"] ].map(([value, label]) => (
-            <div key={label} style={{ background: "white", border: "1px solid #e4e7ec", borderRadius: 18, padding: 18 }}><b style={{ display: "block", fontSize: 28, color: label === "Auto-published" ? "#d92d20" : "#1769ff" }}>{value}</b><span style={{ color: "#667085" }}>{label}</span></div>
+        <section style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 14 }}>
+          {[
+            [preview.total.toLocaleString(), "Objects"],
+            [preview.cases.toLocaleString(), "Decision cases"],
+            [preview.interview.toLocaleString(), "Interview"],
+            [preview.calculations.toLocaleString(), "Calculations"],
+          ].map(([value, label]) => (
+            <div key={label} style={{ background: "white", border: "1px solid #e4e7ec", borderRadius: 18, padding: 18 }}><b style={{ display: "block", fontSize: 28, color: "#1769ff" }}>{value}</b><span style={{ color: "#667085" }}>{label}</span></div>
           ))}
         </section>
 
@@ -104,7 +163,7 @@ export default function ContentImportPage() {
 
         <section style={{ marginTop: 20, border: "1px solid #fecaca", background: "#fff7f7", borderRadius: 18, padding: 18 }}>
           <b style={{ color: "#b42318" }}>Safety rule</b>
-          <p style={{ color: "#667085", lineHeight: 1.6, marginBottom: 0 }}>This importer stages content only. It does not bypass quality review or publish the 204 calculation-oriented items. Those remain subject to deterministic finance verification before canonical publication.</p>
+          <p style={{ color: "#667085", lineHeight: 1.6, marginBottom: 0 }}>This importer stages content only. It does not bypass structural validation, deterministic calculation verification, qualitative review or the canonical publication gate.</p>
         </section>
       </div>
     </main>
