@@ -21,6 +21,11 @@ function tokenMatches(value: string | null) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+function pythonCanonicalEvidence(key: string, raw: any) {
+  // Matches Python json.dumps({correct_answer,key,model_answer,question}, sort_keys=True, ensure_ascii=False)
+  return `{"correct_answer": ${JSON.stringify(raw.correct_answer)}, "key": ${JSON.stringify(key)}, "model_answer": ${JSON.stringify(raw.model_answer)}, "question": ${JSON.stringify(raw.question)}}`;
+}
+
 export async function POST(request: NextRequest) {
   if (!tokenMatches(request.headers.get("x-capital-forge-remediate"))) {
     return NextResponse.json({ ok:false, error:"Unauthorized" }, { status:401 });
@@ -59,9 +64,7 @@ export async function POST(request: NextRequest) {
     const row:any=byKey.get(rec.source_record_key);
     if(!row){ mismatches.push({key:rec.source_record_key,reason:"missing staging row"}); continue; }
     const raw:any=row.raw_content||{};
-    const evidence=JSON.stringify({key:rec.source_record_key,question:raw.question,correct_answer:raw.correct_answer,model_answer:raw.model_answer},Object.keys({key:1,question:1,correct_answer:1,model_answer:1}).sort());
-    // Reproduce Python json.dumps(sort_keys=True, ensure_ascii=False) formatting explicitly below.
-    const canonical=`{"correct_answer":${JSON.stringify(raw.correct_answer)},"key":${JSON.stringify(rec.source_record_key)},"model_answer":${JSON.stringify(raw.model_answer)},"question":${JSON.stringify(raw.question)}}`;
+    const canonical=pythonCanonicalEvidence(rec.source_record_key, raw);
     if(sha256(canonical)!==rec.evidence_sha256){ mismatches.push({key:rec.source_record_key,reason:"content evidence changed"}); }
   }
   if(mismatches.length) return NextResponse.json({ok:false,error:"Evidence mismatch; no deterministic statuses were changed.",mismatches:mismatches.slice(0,20),mismatchCount:mismatches.length},{status:409});
