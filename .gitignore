@@ -8,3 +8,10 @@ out
 *.log
 .DS_Store
 coverage
+
+# Private Capital Forge content-import artifacts.
+# The repository is public; never commit authored training databases or generated import payloads.
+private-imports/
+capital_forge_export_*.json
+capital_forge_export_*.csv
+capital_forge_full_content_export.pdf
