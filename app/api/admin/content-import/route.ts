@@ -78,6 +78,14 @@ export async function POST(request: Request) {
     const body = await request.json();
     const rows = normalizeInput(body?.payload ?? body);
     const objectCount = rows.length;
+    const expectedTotalRaw = Number(body?.expectedTotal ?? objectCount);
+    const expectedTotal = Number.isInteger(expectedTotalRaw) ? expectedTotalRaw : objectCount;
+    const chunkIndexRaw = Number(body?.chunkIndex ?? 0);
+    const totalChunksRaw = Number(body?.totalChunks ?? 1);
+    const chunkIndex = Number.isInteger(chunkIndexRaw) ? chunkIndexRaw : 0;
+    const totalChunks = Number.isInteger(totalChunksRaw) ? totalChunksRaw : 1;
+    const finalize = body?.finalize === true || totalChunks === 1;
+
     const batchName = typeof body?.batchName === "string" && body.batchName.trim()
       ? body.batchName.trim()
       : "CF-CONTENT-IMPORT-MANUAL";
@@ -86,15 +94,21 @@ export async function POST(request: Request) {
       : "capital_forge_staging_payload.json";
 
     if (objectCount === 0) {
-      return NextResponse.json({ ok: false, error: "Import payload is empty." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Import chunk is empty." }, { status: 400 });
     }
-    if (objectCount > 5000) {
-      return NextResponse.json({ ok: false, error: `Maximum protected import size is 5,000 objects; received ${objectCount}.` }, { status: 400 });
+    if (objectCount > 250) {
+      return NextResponse.json({ ok: false, error: `Each protected request may contain at most 250 objects; received ${objectCount}. Use chunked upload.` }, { status: 400 });
+    }
+    if (expectedTotal <= 0 || expectedTotal > 5000) {
+      return NextResponse.json({ ok: false, error: `Expected batch total must be between 1 and 5,000; received ${expectedTotal}.` }, { status: 400 });
+    }
+    if (chunkIndex < 0 || totalChunks < 1 || chunkIndex >= totalChunks) {
+      return NextResponse.json({ ok: false, error: "Invalid chunkIndex/totalChunks metadata." }, { status: 400 });
     }
 
     const keys = rows.map((r) => String(r.source_record_key || "").trim()).filter(Boolean);
     if (keys.length !== objectCount || new Set(keys).size !== objectCount) {
-      return NextResponse.json({ ok: false, error: `The import must contain ${objectCount} non-empty unique source_record_key values.` }, { status: 400 });
+      return NextResponse.json({ ok: false, error: `Chunk must contain ${objectCount} non-empty unique source_record_key values.` }, { status: 400 });
     }
 
     for (const row of rows) {
@@ -104,6 +118,7 @@ export async function POST(request: Request) {
     }
 
     const domainTopicPairs = new Map<string, { domain: string; topic: string }>();
+    const sourceModels = new Set<string>();
     for (const row of rows) {
       const domain = row.detected_domain || String(row.raw_content?.domain || "");
       const topic = row.detected_topic || String(row.raw_content?.topic || "");
@@ -111,17 +126,6 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: `Missing domain/topic on ${row.source_record_key}.` }, { status: 400 });
       }
       domainTopicPairs.set(`${domain}|||${topic}`, { domain, topic });
-    }
-
-    const contentTypeCounts: Record<string, number> = {};
-    const originTypeCounts: Record<string, number> = {};
-    let calculationCount = 0;
-    const sourceModels = new Set<string>();
-    for (const row of rows) {
-      contentTypeCounts[row.content_type] = (contentTypeCounts[row.content_type] || 0) + 1;
-      const origin = String(row.raw_content?.origin_content_type || row.content_type);
-      originTypeCounts[origin] = (originTypeCounts[origin] || 0) + 1;
-      if (row.raw_content?.calculation_required === true) calculationCount += 1;
       if (row.source_model) sourceModels.add(row.source_model);
     }
 
@@ -151,7 +155,7 @@ export async function POST(request: Request) {
 
     const domainIdBySlug = new Map((domainData || []).map((d) => [d.slug, d.id]));
     if (domainIdBySlug.size !== domainRows.length) {
-      throw new Error(`Expected ${domainRows.length} normalized domains; resolved ${domainIdBySlug.size}.`);
+      throw new Error(`Expected ${domainRows.length} normalized domains in this chunk; resolved ${domainIdBySlug.size}.`);
     }
 
     const topicRows = [...domainTopicPairs.values()].map(({ domain, topic }) => ({
@@ -188,16 +192,12 @@ export async function POST(request: Request) {
           source_type: "json",
           source_model: sourceModels.size === 1 ? [...sourceModels][0] : "capital-forge-mixed-import",
           original_filename: originalFilename,
-          status: "created",
+          status: "staging",
           metadata: {
-            source: "Capital Forge protected content importer",
-            object_count: objectCount,
-            content_type_counts: contentTypeCounts,
-            origin_content_type_counts: originTypeCounts,
-            calculation_count: calculationCount,
-            domain_count: domainNames.length,
-            topic_count: domainTopicPairs.size,
-            parser_contract: "capital-forge-staging-import-v2",
+            source: "Capital Forge protected chunked content importer",
+            expected_object_count: expectedTotal,
+            total_chunks: totalChunks,
+            parser_contract: "capital-forge-staging-import-v3-chunked",
           },
         })
         .select("id,batch_name,status")
@@ -210,7 +210,7 @@ export async function POST(request: Request) {
     for (const part of chunk(keys, 100)) {
       const { data, error } = await supabase
         .from("cf_content_staging")
-        .select("source_record_key")
+        .select("source_record_key,import_batch_id")
         .in("source_record_key", part);
       if (error) throw new Error(`Existing-key lookup failed: ${error.message}`);
       for (const row of data || []) existing.add(row.source_record_key);
@@ -235,6 +235,47 @@ export async function POST(request: Request) {
     for (const part of chunk(newRows, 40)) {
       const { error } = await supabase.from("cf_content_staging").insert(part);
       if (error) throw new Error(`Staging insert failed: ${error.message}`);
+    }
+
+    const { count: stagedCount, error: countError } = await supabase
+      .from("cf_content_staging")
+      .select("id", { count: "exact", head: true })
+      .eq("import_batch_id", batch.id);
+    if (countError) throw new Error(`Staging count failed: ${countError.message}`);
+
+    if (!finalize) {
+      await supabase.from("cf_import_batches").update({ status: "staging" }).eq("id", batch.id);
+      return NextResponse.json({
+        ok: true,
+        partial: true,
+        batchName: batch.batch_name,
+        batchId: batch.id,
+        sourceObjects: expectedTotal,
+        chunkObjects: objectCount,
+        chunkIndex,
+        totalChunks,
+        existingKeysSkipped: existing.size,
+        inserted: newRows.length,
+        stagedObjectsInBatch: stagedCount || 0,
+        validationCalled: false,
+        validationMessage: "Deferred until final chunk.",
+        published: 0,
+        note: "Chunk staged successfully; batch is not yet finalized or published.",
+      });
+    }
+
+    if ((stagedCount || 0) !== expectedTotal) {
+      await supabase.from("cf_import_batches").update({ status: "staging" }).eq("id", batch.id);
+      return NextResponse.json({
+        ok: false,
+        error: `Finalization refused: expected ${expectedTotal} staged objects in batch, found ${stagedCount || 0}. Retry the same import; completed chunks are idempotently skipped.`,
+        batchName: batch.batch_name,
+        batchId: batch.id,
+        stagedObjectsInBatch: stagedCount || 0,
+        sourceObjects: expectedTotal,
+        chunkIndex,
+        totalChunks,
+      }, { status: 409 });
     }
 
     await supabase.from("cf_import_batches").update({ status: "staged" }).eq("id", batch.id);
@@ -273,20 +314,21 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
+      partial: false,
       batchName: batch.batch_name,
       batchId: batch.id,
-      sourceObjects: objectCount,
+      sourceObjects: expectedTotal,
+      chunkObjects: objectCount,
+      chunkIndex,
+      totalChunks,
       existingKeysSkipped: existing.size,
       inserted: newRows.length,
       stagedObjectsInBatch: stagedRows?.length || 0,
       validationCalled,
       validationMessage,
       statusSummary,
-      contentTypeCounts,
-      originTypeCounts,
-      calculationCount,
       published: 0,
-      note: "Staging-only import. Nothing is automatically published; structural validation, deterministic calculation verification, qualitative review and publication gates remain in force.",
+      note: "All chunks staged. Nothing is automatically published; structural validation, deterministic calculation verification, qualitative review and publication gates remain in force.",
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
