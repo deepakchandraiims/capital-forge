@@ -21,6 +21,15 @@ function tokenMatches(value: string | null) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+// The verification manifest was generated in Python with:
+// json.dumps(payload, sort_keys=True, ensure_ascii=False)
+// Python's default JSON separators are ", " and ": ".
+// Keep this exact representation so evidence hashes are deterministic
+// across the Python verification generator and this Next.js verifier.
+function pythonCanonicalEvidence(raw: any, sourceRecordKey: string) {
+  return `{"correct_answer": ${JSON.stringify(raw.correct_answer ?? null)}, "key": ${JSON.stringify(sourceRecordKey)}, "model_answer": ${JSON.stringify(raw.model_answer ?? null)}, "question": ${JSON.stringify(raw.question ?? null)}}`;
+}
+
 export async function POST(request: Request) {
   const suppliedToken = request.headers.get("x-capital-forge-remediate");
   if (!tokenMatches(suppliedToken)) {
@@ -95,10 +104,18 @@ export async function POST(request: Request) {
       mismatches.push({ key: rec.source_record_key, reason: "missing staging row" });
       continue;
     }
+
     const raw: any = row.raw_content || {};
-    const canonical = `{"correct_answer":${JSON.stringify(raw.correct_answer)},"key":${JSON.stringify(rec.source_record_key)},"model_answer":${JSON.stringify(raw.model_answer)},"question":${JSON.stringify(raw.question)}}`;
-    if (sha256(canonical) !== rec.evidence_sha256) {
-      mismatches.push({ key: rec.source_record_key, reason: "content evidence changed" });
+    const canonical = pythonCanonicalEvidence(raw, rec.source_record_key);
+    const actualEvidenceHash = sha256(canonical);
+
+    if (actualEvidenceHash !== rec.evidence_sha256) {
+      mismatches.push({
+        key: rec.source_record_key,
+        reason: "content evidence changed",
+        expectedHash: rec.evidence_sha256,
+        actualHash: actualEvidenceHash,
+      });
     }
   }
 
@@ -123,7 +140,7 @@ export async function POST(request: Request) {
         deterministic_status: "passed",
         deterministic_score: 100,
         deterministic_result: {
-          verifier: "capital-forge-calculation-audit-v2",
+          verifier: "capital-forge-calculation-audit-v3",
           verification_method: rec.verification_method,
           semantic_rule: rec.semantic_rule,
           equations_checked: rec.equations_checked,
@@ -131,6 +148,7 @@ export async function POST(request: Request) {
           expected_answer_text: rec.expected_answer_text,
           evidence_sha256: rec.evidence_sha256,
           manifest_sha256: MANIFEST_SHA256,
+          evidence_serialization: "python-json-dumps-sort-keys-default-separators",
         },
         calculation_validated_at: new Date().toISOString(),
       })
