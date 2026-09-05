@@ -9,6 +9,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "validate:content": "node scripts/validate-content.mjs",
+    "import:content": "node scripts/import-content-manifest.mjs",
     "ci:check": "npm run validate:content && npm run typecheck && npm run build"
   },
   "dependencies": {
