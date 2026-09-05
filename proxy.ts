@@ -9,6 +9,7 @@ export function proxy(request: NextRequest) {
     open === "Dashboard" ? "/dashboard" :
     open === "Feedback" ? "/feedback" :
     open === "Interview Room" ? "/interview" :
+    open === "Practice" ? "/practice" :
     open === "Home" || !open ? "/home" :
     null;
 
