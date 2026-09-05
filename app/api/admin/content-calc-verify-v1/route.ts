@@ -21,13 +21,31 @@ function tokenMatches(value: string | null) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-// The verification manifest was generated in Python with:
-// json.dumps(payload, sort_keys=True, ensure_ascii=False)
-// Python's default JSON separators are ", " and ": ".
-// Keep this exact representation so evidence hashes are deterministic
-// across the Python verification generator and this Next.js verifier.
 function pythonCanonicalEvidence(raw: any, sourceRecordKey: string) {
   return `{"correct_answer": ${JSON.stringify(raw.correct_answer ?? null)}, "key": ${JSON.stringify(sourceRecordKey)}, "model_answer": ${JSON.stringify(raw.model_answer ?? null)}, "question": ${JSON.stringify(raw.question ?? null)}}`;
+}
+
+function compactCanonicalEvidence(raw: any, sourceRecordKey: string) {
+  return `{"correct_answer":${JSON.stringify(raw.correct_answer ?? null)},"key":${JSON.stringify(sourceRecordKey)},"model_answer":${JSON.stringify(raw.model_answer ?? null)},"question":${JSON.stringify(raw.question ?? null)}}`;
+}
+
+function evidenceMatch(raw: any, sourceRecordKey: string, expectedHash: string) {
+  const pythonHash = sha256(pythonCanonicalEvidence(raw, sourceRecordKey));
+  if (pythonHash === expectedHash) {
+    return { matched: true, serialization: "python-json-dumps-default-separators", actualHash: pythonHash };
+  }
+
+  const compactHash = sha256(compactCanonicalEvidence(raw, sourceRecordKey));
+  if (compactHash === expectedHash) {
+    return { matched: true, serialization: "compact-json-separators", actualHash: compactHash };
+  }
+
+  return {
+    matched: false,
+    serialization: null,
+    actualHash: pythonHash,
+    alternateHash: compactHash,
+  };
 }
 
 export async function POST(request: Request) {
@@ -97,6 +115,7 @@ export async function POST(request: Request) {
 
   const byKey = new Map((rows || []).map((r: any) => [r.source_record_key, r]));
   const mismatches: any[] = [];
+  const serializationByKey = new Map<string, string>();
 
   for (const rec of manifest.records) {
     const row: any = byKey.get(rec.source_record_key);
@@ -106,16 +125,18 @@ export async function POST(request: Request) {
     }
 
     const raw: any = row.raw_content || {};
-    const canonical = pythonCanonicalEvidence(raw, rec.source_record_key);
-    const actualEvidenceHash = sha256(canonical);
+    const match = evidenceMatch(raw, rec.source_record_key, rec.evidence_sha256);
 
-    if (actualEvidenceHash !== rec.evidence_sha256) {
+    if (!match.matched) {
       mismatches.push({
         key: rec.source_record_key,
         reason: "content evidence changed",
         expectedHash: rec.evidence_sha256,
-        actualHash: actualEvidenceHash,
+        pythonStyleHash: match.actualHash,
+        compactStyleHash: match.alternateHash,
       });
+    } else if (match.serialization) {
+      serializationByKey.set(rec.source_record_key, match.serialization);
     }
   }
 
@@ -140,7 +161,7 @@ export async function POST(request: Request) {
         deterministic_status: "passed",
         deterministic_score: 100,
         deterministic_result: {
-          verifier: "capital-forge-calculation-audit-v3",
+          verifier: "capital-forge-calculation-audit-v4",
           verification_method: rec.verification_method,
           semantic_rule: rec.semantic_rule,
           equations_checked: rec.equations_checked,
@@ -148,7 +169,7 @@ export async function POST(request: Request) {
           expected_answer_text: rec.expected_answer_text,
           evidence_sha256: rec.evidence_sha256,
           manifest_sha256: MANIFEST_SHA256,
-          evidence_serialization: "python-json-dumps-sort-keys-default-separators",
+          evidence_serialization: serializationByKey.get(rec.source_record_key) || "unknown",
         },
         calculation_validated_at: new Date().toISOString(),
       })
