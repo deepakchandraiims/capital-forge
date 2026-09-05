@@ -8,6 +8,9 @@ type ImportResult = {
   batchName?: string;
   batchId?: string;
   sourceObjects?: number;
+  chunkObjects?: number;
+  chunkIndex?: number;
+  totalChunks?: number;
   existingKeysSkipped?: number;
   inserted?: number;
   stagedObjectsInBatch?: number;
@@ -24,6 +27,8 @@ type Preview = {
   cases: number;
   interview: number;
 };
+
+const UPLOAD_CHUNK_SIZE = 100;
 
 export default function ContentImportPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -63,9 +68,19 @@ export default function ContentImportPage() {
       const cases = rows.filter((row: any) => (row?.raw_content?.origin_content_type || row?.content_type) === "decision_case" || row?.content_type === "case").length;
       const interview = rows.filter((row: any) => (row?.raw_content?.origin_content_type || row?.content_type) === "interview_question" || row?.content_type === "interview_question").length;
       setPreview({ total: rows.length, calculations, cases, interview });
-      setMessage(`Ready to stage ${rows.length.toLocaleString()} objects. Nothing will be auto-published.`);
+      setMessage(`Ready to stage ${rows.length.toLocaleString()} objects in ${Math.ceil(rows.length / UPLOAD_CHUNK_SIZE)} protected chunks. Nothing will be auto-published.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function parseResponse(response: Response): Promise<ImportResult> {
+    const raw = await response.text();
+    try {
+      return JSON.parse(raw) as ImportResult;
+    } catch {
+      const snippet = raw.replace(/\s+/g, " ").slice(0, 240) || response.statusText || "empty response";
+      throw new Error(`Import endpoint returned HTTP ${response.status}: ${snippet}`);
     }
   }
 
@@ -74,6 +89,7 @@ export default function ContentImportPage() {
     setBusy(true);
     setMessage("Reading the private staging payload locally…");
     setResult(null);
+
     try {
       const text = await file.text();
       const payload = JSON.parse(text);
@@ -90,23 +106,52 @@ export default function ContentImportPage() {
         throw new Error("Every object must have one non-empty unique source_record_key.");
       }
 
-      setMessage(`Uploading ${rows.length.toLocaleString()} normalized objects to the private staging pipeline…`);
-      const response = await fetch("/api/admin/content-import", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-capital-forge-admin": secret.trim(),
-        },
-        body: JSON.stringify({
-          batchName: batchName.trim() || "CF-CONTENT-IMPORT-MANUAL",
-          filename: file.name,
-          payload,
-        }),
-      });
-      const data = (await response.json()) as ImportResult;
-      setResult(data);
-      if (!response.ok || !data.ok) throw new Error(data.error || "Import failed.");
-      setMessage("Import finished. Review the staging summary below; nothing was auto-published.");
+      const totalChunks = Math.ceil(rows.length / UPLOAD_CHUNK_SIZE);
+      let insertedTotal = 0;
+      let skippedTotal = 0;
+      let finalResult: ImportResult | null = null;
+
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+        const start = chunkIndex * UPLOAD_CHUNK_SIZE;
+        const chunkRows = rows.slice(start, start + UPLOAD_CHUNK_SIZE);
+        const isFinal = chunkIndex === totalChunks - 1;
+        setMessage(`Staging chunk ${chunkIndex + 1} of ${totalChunks} · ${Math.min(start + chunkRows.length, rows.length).toLocaleString()} / ${rows.length.toLocaleString()} objects…`);
+
+        const response = await fetch("/api/admin/content-import", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-capital-forge-admin": secret.trim(),
+          },
+          body: JSON.stringify({
+            batchName: batchName.trim() || "CF-CONTENT-IMPORT-MANUAL",
+            filename: file.name,
+            expectedTotal: rows.length,
+            chunkIndex,
+            totalChunks,
+            finalize: isFinal,
+            payload: chunkRows,
+          }),
+        });
+
+        const data = await parseResponse(response);
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || `Chunk ${chunkIndex + 1} failed.`);
+        }
+        insertedTotal += Number(data.inserted || 0);
+        skippedTotal += Number(data.existingKeysSkipped || 0);
+        finalResult = data;
+      }
+
+      if (!finalResult) throw new Error("No import result was returned.");
+      const completed: ImportResult = {
+        ...finalResult,
+        inserted: insertedTotal,
+        existingKeysSkipped: skippedTotal,
+        sourceObjects: rows.length,
+      };
+      setResult(completed);
+      setMessage(`Import finished: ${Number(completed.stagedObjectsInBatch || 0).toLocaleString()} objects are staged. Review the summary below; nothing was auto-published.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -120,7 +165,7 @@ export default function ContentImportPage() {
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: "inline-flex", borderRadius: 999, background: "#eaf2ff", color: "#1457d9", padding: "7px 11px", fontWeight: 800, fontSize: 12 }}>CAPITAL FORGE CONTENT OS</div>
           <h1 style={{ margin: "14px 0 6px", fontSize: 38, letterSpacing: "-.04em" }}>Private Content Import</h1>
-          <p style={{ color: "#667085", lineHeight: 1.6, maxWidth: 760 }}>Upload a private normalized JSON staging payload. The browser reads the file locally and sends it to the protected server-side importer. Source datasets and manifests are never committed to the public GitHub repository.</p>
+          <p style={{ color: "#667085", lineHeight: 1.6, maxWidth: 760 }}>Upload a private normalized JSON staging payload. Large payloads are split locally into protected chunks before reaching the server. Source datasets and manifests are never committed to the public GitHub repository.</p>
         </div>
 
         <section style={{ background: "white", border: "1px solid #e4e7ec", borderRadius: 22, padding: 24, boxShadow: "0 18px 50px rgba(16,24,40,.06)" }}>
@@ -139,10 +184,10 @@ export default function ContentImportPage() {
             <label style={{ display: "grid", gap: 8, fontWeight: 800 }}>
               3. Capital Forge admin secret
               <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="CAPITAL_FORGE_ADMIN_SECRET" autoComplete="off" style={{ border: "1px solid #d0d5dd", borderRadius: 14, padding: 14 }} />
-              <small style={{ color: "#667085", fontWeight: 500 }}>The secret is sent only in the request header and is not stored by this page.</small>
+              <small style={{ color: "#667085", fontWeight: 500 }}>The secret is sent only in request headers and is not stored by this page.</small>
             </label>
 
-            <button onClick={runImport} disabled={!ready} style={{ border: 0, borderRadius: 14, padding: "14px 18px", fontWeight: 900, background: ready ? "#1769ff" : "#cfd8e8", color: "white", cursor: ready ? "pointer" : "not-allowed" }}>{busy ? "Importing…" : `Stage ${preview.total ? preview.total.toLocaleString() : "Content"} Objects →`}</button>
+            <button onClick={runImport} disabled={!ready} style={{ border: 0, borderRadius: 14, padding: "14px 18px", fontWeight: 900, background: ready ? "#1769ff" : "#cfd8e8", color: "white", cursor: ready ? "pointer" : "not-allowed" }}>{busy ? "Importing in chunks…" : `Stage ${preview.total ? preview.total.toLocaleString() : "Content"} Objects →`}</button>
           </div>
         </section>
 
