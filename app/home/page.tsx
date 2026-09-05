@@ -5,6 +5,21 @@ import { useEffect, useMemo, useState } from "react";
 type Tone = "blue" | "red" | "green" | "purple" | "black";
 type NewsItem = { id:string; tag:string; tone?:Tone; title:string; summary:string; time:string; imageUrl?:string; source?:string; url?:string };
 type Store = { xp?:number; attempts?:Array<{correct?:boolean}>; streak?:number };
+type CanonicalCase = {
+  id:string;
+  source_record_key?:string|null;
+  title?:string|null;
+  prompt?:string|null;
+  case_prompt?:string|null;
+  question?:string|null;
+  scenario?:string|null;
+  context?:string|null;
+  difficulty?:number|null;
+  seniority?:string|null;
+  career_tracks?:string[]|null;
+  domain_name?:string|null;
+  topic_name?:string|null;
+};
 
 const tabs=["Home","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
 const icons:Record<string,string>={Home:"⌂",Practice:"▣",Advanced:"▥",Dashboard:"▦",Feedback:"▱","Interview Room":"▻",API:"⌘"};
@@ -22,17 +37,19 @@ const fallback:NewsItem[]=[
   {id:"h4",tag:"Business",tone:"red",title:"Infrastructure and renewables M&A remains active",summary:"Strategic and financial buyers continue to screen cash-generative platforms.",time:"5h ago",source:"Capital Forge",imageUrl:fallbackImages[3]},
   {id:"h5",tag:"Global",tone:"blue",title:"Global markets await the next central-bank signal",summary:"Rates, currencies and risk appetite remain key cross-asset drivers.",time:"6h ago",source:"Capital Forge",imageUrl:fallbackImages[4]}
 ];
-const cases=[
-  ["Financial Modeling","Build a 3-Statement Model","Build a full operating model and derive key valuation metrics.","Medium","45 min"],
-  ["Valuation","DCF Valuation Analysis","Estimate intrinsic value and run sensitivities on major assumptions.","Medium","40 min"],
-  ["M&A","Buy-Side M&A Case","Assess acquisition logic, synergies, financing and accretion/dilution.","Hard","60 min"],
-  ["Market Analysis","Market Entry Strategy","Evaluate attractiveness and propose a defensible go-to-market strategy.","Medium","35 min"]
+const fallbackCases:CanonicalCase[]=[
+  {id:"fallback-1",source_record_key:"CASE-FM",domain_name:"Financial Modeling",title:"Build a 3-Statement Model",prompt:"Build a full operating model and derive key valuation metrics.",difficulty:5,seniority:"Analyst"},
+  {id:"fallback-2",source_record_key:"CASE-VAL",domain_name:"Valuation",title:"DCF Valuation Analysis",prompt:"Estimate intrinsic value and run sensitivities on major assumptions.",difficulty:5,seniority:"Analyst"},
+  {id:"fallback-3",source_record_key:"CASE-MA",domain_name:"Mergers & Acquisitions",title:"Buy-Side M&A Case",prompt:"Assess acquisition logic, synergies, financing and accretion/dilution.",difficulty:8,seniority:"Associate"},
+  {id:"fallback-4",source_record_key:"CASE-PE",domain_name:"Private Equity",title:"Investment Committee Decision",prompt:"Make a go/no-go recommendation using returns, downside and execution risk.",difficulty:8,seniority:"Associate"}
 ];
 
 function nav(tab:string){
   if(tab==="Home") window.location.assign("/home");
+  else if(tab==="Practice") window.location.assign("/practice");
   else if(tab==="Dashboard") window.location.assign("/dashboard");
   else if(tab==="Feedback") window.location.assign("/feedback");
+  else if(tab==="Interview Room") window.location.assign("/interview");
   else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
 }
 function ensureFive(items:NewsItem[]){
@@ -40,10 +57,19 @@ function ensureFive(items:NewsItem[]){
   for(let i=out.length;i<5;i++) out.push({...fallback[i],id:`fill-${i}`});
   return out.slice(0,5);
 }
+function pickCaseText(item:CanonicalCase,keys:(keyof CanonicalCase)[]){
+  for(const key of keys){const value=item[key];if(typeof value==="string"&&value.trim())return value.trim();}
+  return "";
+}
+function caseTitle(item:CanonicalCase){return pickCaseText(item,["title","question","prompt","case_prompt","scenario"])||item.source_record_key||"Canonical Decision Case";}
+function caseSummary(item:CanonicalCase){const text=pickCaseText(item,["prompt","case_prompt","question","scenario","context"]);return text.length>170?`${text.slice(0,167)}…`:text||"Open the canonical case and make your recommendation before revealing the framework.";}
+function difficultyLabel(value?:number|null){const n=Number(value||1);if(n<=3)return"Foundation";if(n<=6)return"Intermediate";if(n<=8)return"Hard";return"Director / IC";}
 
 export default function HomePage(){
   const [news,setNews]=useState<NewsItem[]>(fallback);
   const [busy,setBusy]=useState(false);
+  const [caseBusy,setCaseBusy]=useState(false);
+  const [caseItems,setCaseItems]=useState<CanonicalCase[]>(fallbackCases);
   const [store,setStore]=useState<Store>({xp:0,attempts:[],streak:0});
   const [lastUpdated,setLastUpdated]=useState("Just now");
 
@@ -53,6 +79,7 @@ export default function HomePage(){
       for(const key of keys){const raw=localStorage.getItem(key);if(raw){const parsed=JSON.parse(raw);setStore(parsed);break;}}
     }catch{}
     void refreshNews();
+    void refreshCases();
   },[]);
 
   async function refreshNews(){
@@ -63,6 +90,20 @@ export default function HomePage(){
       setNews(ensureFive(Array.isArray(data.news)?data.news:fallback));
       setLastUpdated(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
     }catch{setNews(fallback);}finally{setBusy(false);}
+  }
+
+  async function refreshCases(){
+    setCaseBusy(true);
+    try{
+      const res=await fetch("/api/content?type=cases&limit=1000",{cache:"no-store"});
+      const data=await res.json();
+      if(!res.ok||!data.ok)throw new Error(data.error||"Cases unavailable");
+      const rows=(Array.isArray(data.cases)?data.cases:[]) as CanonicalCase[];
+      const decision=rows.filter((x)=>String(x.source_record_key||"").startsWith("DEC-"));
+      const source=decision.length>=4?decision:rows;
+      const selected=[...source].sort((a,b)=>String(a.source_record_key||"").localeCompare(String(b.source_record_key||""))).slice(0,4);
+      setCaseItems(selected.length?selected:fallbackCases);
+    }catch{setCaseItems(fallbackCases);}finally{setCaseBusy(false);}
   }
 
   const visible=useMemo(()=>ensureFive(news),[news]);
@@ -80,7 +121,7 @@ export default function HomePage(){
       <div className="home-profile"><div className="home-avatar">DC</div><div><b>Deepak</b><small>Keep Going!</small></div><span>⌄</span></div>
     </header>
 
-    <aside className="home-sidebar"><nav>{tabs.map(tab=><button key={tab} className={tab==="Home"?"active":""} onClick={()=>nav(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="home-upgrade"><h3>Upgrade to Pro</h3><p>Unlock advanced AI, analytics, feedback and unlimited practice.</p><button>⚡ Upgrade Now</button></div><div className="home-version">Capital Forge v1.4.0<br/>Built for your best tomorrow.</div></aside>
+    <aside className="home-sidebar"><nav>{tabs.map(tab=><button key={tab} className={tab==="Home"?"active":""} onClick={()=>nav(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="home-upgrade"><h3>Canonical Content OS</h3><p>700 quality-gated learning objects across finance, investing and interviews.</p><button onClick={()=>window.location.assign("/cases")}>⚡ Open Decision Lab</button></div><div className="home-version">Capital Forge · Full Catalog<br/>Built for your best tomorrow.</div></aside>
 
     <main className="home-workspace">
       <div className="home-grid">
@@ -89,15 +130,15 @@ export default function HomePage(){
 
           <section className="home-section news-section"><div className="home-section-head"><div><h2><i className="live-dot"/>Live News & Updates</h2><p>Curated insights from markets, AI, and global finance.</p></div><div className="home-refresh-wrap"><small>Last updated: {lastUpdated}</small><button onClick={refreshNews}>{busy?"Refreshing...":"↻ Refresh"}</button></div></div><div className="home-news-grid">{visible.map((item,i)=><article key={item.id}><div className="home-news-img" style={{backgroundImage:`url(${item.imageUrl||fallbackImages[i]})`}}/><div className="home-news-meta"><span className={item.tone||"blue"}>{item.tag}</span><small>{item.time}</small></div><h3>{item.title}</h3><p>{item.summary}</p><div className="home-news-foot"><small>{item.source||"Marketaux"}</small>{item.url?<a href={item.url} target="_blank" rel="noreferrer">Read →</a>:<span>Read →</span>}</div></article>)}</div></section>
 
-          <section className="home-section cases-section"><div className="home-section-head"><div><h2>📕 Featured Short Cases</h2><p>Real-world scenarios to sharpen your thinking.</p></div><button onClick={()=>nav("Practice")}>↻ Refresh Cases</button></div><div className="home-case-grid">{cases.map((c,i)=><article key={c[1]}><div><span>Case {i+1}</span><b>{c[0]}</b></div><h3>{c[1]}</h3><p>{c[2]}</p><small>{c[3]} · ~{c[4]}</small><button onClick={()=>nav("Practice")}>Solve Now →</button></article>)}</div></section>
+          <section className="home-section cases-section"><div className="home-section-head"><div><h2>📕 Canonical Decision Cases</h2><p>Cases from the 105-case decision set you uploaded and published.</p></div><div style={{display:"flex",gap:8}}><button onClick={refreshCases}>{caseBusy?"Loading...":"↻ Refresh Cases"}</button><button onClick={()=>window.location.assign("/cases")}>View All 110 →</button></div></div><div className="home-case-grid">{caseItems.map((c,i)=><article key={c.id}><div><span>{c.source_record_key||`Case ${i+1}`}</span><b>{c.domain_name||c.topic_name||"Decision Making"}</b></div><h3>{caseTitle(c)}</h3><p>{caseSummary(c)}</p><small>{difficultyLabel(c.difficulty)} · {c.seniority||"Investment Judgment"}</small><button onClick={()=>window.location.assign(`/cases?case=${encodeURIComponent(c.source_record_key||c.id)}`)}>Solve Now →</button></article>)}</div></section>
         </section>
 
         <aside className="home-rail">
           <section className="home-rail-card progress-card"><div className="home-rail-head"><h3>Your Progress</h3><button onClick={()=>nav("Dashboard")}>View Dashboard →</button></div><div className="home-progress-body"><div className="home-donut" style={{background:`conic-gradient(#0875fa 0 ${Math.max(18,progress)}%,#e9eef5 ${Math.max(18,progress)}% 100%)`}}><div><b>{Math.max(18,progress)}%</b><small>Overall</small></div></div><div className="home-progress-list"><Progress label="Practice" value={Math.max(20,accuracy)} tone="green"/><Progress label="Advanced" value={64} tone="blue"/><Progress label="Interview" value={Math.max(18,attempts.length*5)} tone="purple"/></div></div></section>
           <section className="home-rail-card streak-card"><div><h3>🔥 7 Day Streak</h3><p>Keep it up!</p></div><b>{streak}<small>Days</small></b><div className="home-days">{["M","T","W","T","F","S","S"].map((d,i)=><span key={i} className={i<5?"done":""}>{i<4?"✓":d}</span>)}</div></section>
           <section className="home-rail-card insight-card"><h3>AI Insights <em>New</em></h3><p>You perform best in Valuation and Modeling. Focus on Market Analysis to balance your skill set and improve interview readiness.</p><div><button onClick={()=>nav("Dashboard")}>View Insights →</button><span>AI</span></div></section>
-          <section className="home-rail-card"><h3>Recommended For You</h3><div className="home-reco"><button onClick={()=>nav("Advanced")}><span>🎯</span><b>Complete 5 more Advanced questions<small>+120 XP</small></b><i>›</i></button><button onClick={()=>nav("Practice")}><span>🧠</span><b>Try a Hard case this weekend<small>+150 XP</small></b><i>›</i></button><button onClick={()=>nav("Interview Room")}><span>👤</span><b>Book a mock interview<small>+200 XP</small></b><i>›</i></button></div></section>
-          <section className="home-rail-card"><h3>Quick Actions</h3><div className="home-quick"><button onClick={()=>nav("Practice")}><span>▶</span><small>Start Practice</small></button><button onClick={()=>nav("Advanced")}><span>▥</span><small>Go to Advanced</small></button><button onClick={()=>nav("Interview Room")}><span>▣</span><small>Interview Room</small></button><button onClick={()=>nav("Feedback")}><span>▱</span><small>Feedback</small></button></div></section>
+          <section className="home-rail-card"><h3>Recommended For You</h3><div className="home-reco"><button onClick={()=>nav("Advanced")}><span>🎯</span><b>Complete 5 more Advanced questions<small>+120 XP</small></b><i>›</i></button><button onClick={()=>window.location.assign("/cases")}><span>🧠</span><b>Try a Hard decision case<small>+150 XP</small></b><i>›</i></button><button onClick={()=>nav("Interview Room")}><span>👤</span><b>Run a mock interview<small>+200 XP</small></b><i>›</i></button></div></section>
+          <section className="home-rail-card"><h3>Quick Actions</h3><div className="home-quick"><button onClick={()=>nav("Practice")}><span>▶</span><small>Start Practice</small></button><button onClick={()=>window.location.assign("/cases")}><span>▥</span><small>Decision Cases</small></button><button onClick={()=>nav("Interview Room")}><span>▣</span><small>Interview Room</small></button><button onClick={()=>nav("Feedback")}><span>▱</span><small>Feedback</small></button></div></section>
         </aside>
       </div>
     </main>
