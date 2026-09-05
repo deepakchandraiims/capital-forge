@@ -31,6 +31,7 @@ type ApiResult = Status & {
   failed?: any[];
   status?: Status;
   message?: string;
+  repairedDuplicateVariants?: number;
 };
 
 export default function DirectV2ReleasePage() {
@@ -70,18 +71,26 @@ export default function DirectV2ReleasePage() {
     setBusy(true);
     setRaw(null);
     try {
-      setPhase("1/5 · Structural validation across all 2,000 objects…");
+      setPhase("1/6 · Normalizing V2 contract and repairing intentional-variant collisions…");
+      let offset = 0;
+      while (true) {
+        const data = await call("repair", { offset });
+        if (data.done) break;
+        offset = Number(data.nextOffset || offset + Number(data.processed || 0));
+      }
+
+      setPhase("2/6 · Structural validation across all 2,000 objects…");
       await call("validate");
 
-      setPhase("2/5 · Deterministic verification of calculation objects…");
-      let offset = 0;
+      setPhase("3/6 · Deterministic verification of 393 calculation objects…");
+      offset = 0;
       while (true) {
         const data = await call("verify_calculations", { offset });
         if (data.done) break;
         offset = Number(data.nextOffset || offset + Number(data.processed || 0));
       }
 
-      setPhase("3/5 · Recording V2 remediation QA reviews…");
+      setPhase("4/6 · Recording V2 remediation QA reviews…");
       offset = 0;
       while (true) {
         const data = await call("review", { offset });
@@ -89,7 +98,7 @@ export default function DirectV2ReleasePage() {
         offset = Number(data.nextOffset || offset + Number(data.processed || 0));
       }
 
-      setPhase("4/5 · Running publication gate…");
+      setPhase("5/6 · Running the existing publication gate…");
       offset = 0;
       while (true) {
         const data = await call("gate", { offset });
@@ -101,14 +110,14 @@ export default function DirectV2ReleasePage() {
       setStatus(checked);
       if (!checked.readyForPublish && !checked.fullyPublished) throw new Error("Database gate did not mark all 2,000 objects ready. Publication stopped safely.");
 
-      setPhase("5/5 · Publishing canonical objects…");
+      setPhase("6/6 · Publishing canonical objects…");
       let rounds = 0;
       while (rounds < 170) {
         const data = await call("publish");
         rounds += 1;
         const s = data.status || status;
         const published = Number(s?.summary?.byPublication?.published || 0);
-        setPhase(`5/5 · Publishing… ${published.toLocaleString()} / 2,000 linked.`);
+        setPhase(`6/6 · Publishing… ${published.toLocaleString()} / 2,000 linked.`);
         if (data.done || s?.fullyPublished) break;
       }
 
@@ -144,12 +153,12 @@ export default function DirectV2ReleasePage() {
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: "inline-flex", borderRadius: 999, background: "#eaf2ff", color: "#1457d9", padding: "7px 11px", fontWeight: 800, fontSize: 12 }}>CAPITAL FORGE · FIXED V2 RELEASE</div>
           <h1 style={{ margin: "14px 0 6px", fontSize: 38, letterSpacing: "-.04em" }}>Publish V2 Without Admin Key</h1>
-          <p style={{ color: "#667085", lineHeight: 1.6, maxWidth: 840 }}>This one-time release control is locked to batch <strong>CF-V2-2000-20260905-001</strong>. It cannot publish another batch and it refuses publication unless exactly 2,000 CF2 objects pass the existing structural, calculation and publication gates.</p>
+          <p style={{ color: "#667085", lineHeight: 1.6, maxWidth: 860 }}>This one-time release control is locked to batch <strong>CF-V2-2000-20260905-001</strong>. Before validation it normalizes the V2 staging contract and repairs exact intentional-variant collisions. It still refuses publication unless exactly 2,000 CF2 objects pass structural validation, deterministic calculation checks, QA review and the existing publication gate.</p>
         </div>
 
         <section style={{ background: "white", border: "1px solid #e4e7ec", borderRadius: 22, padding: 24, boxShadow: "0 18px 50px rgba(16,24,40,.06)" }}>
           <button onClick={runAll} disabled={!canRun} style={{ width: "100%", border: 0, borderRadius: 14, padding: "16px 18px", fontWeight: 950, fontSize: 16, background: status?.fullyPublished ? "#12b76a" : canRun ? "#1769ff" : "#cfd8e8", color: "white", cursor: canRun ? "pointer" : "not-allowed" }}>
-            {status?.fullyPublished ? "✓ All 2,000 Objects Published" : busy ? "Running release pipeline…" : staged === 2000 ? "Run Checks & Publish 2,000 Objects →" : `Upload remaining objects first (${staged}/2000 staged)`}
+            {status?.fullyPublished ? "✓ All 2,000 Objects Published" : busy ? "Running release pipeline…" : staged === 2000 ? "Repair, Check & Publish 2,000 Objects →" : `Upload remaining objects first (${staged}/2000 staged)`}
           </button>
           <button onClick={refresh} disabled={busy} style={{ width: "100%", marginTop: 10, border: "1px solid #b9c8e8", borderRadius: 14, padding: "13px 18px", fontWeight: 850, background: "white", color: "#1457d9" }}>Refresh Status</button>
         </section>
@@ -168,6 +177,8 @@ export default function DirectV2ReleasePage() {
             <b>Release state</b>
             <div style={{ marginTop: 12, color: "#667085", lineHeight: 1.8 }}>
               <div>Validated: <strong>{Number(validation.validated || 0).toLocaleString()}</strong></div>
+              <div>Needs review: <strong>{Number(validation.needs_review || 0).toLocaleString()}</strong></div>
+              <div>Duplicate: <strong>{Number(validation.duplicate || 0).toLocaleString()}</strong></div>
               <div>Ready: <strong>{ready.toLocaleString()}</strong></div>
               <div>Published lineage: <strong>{published.toLocaleString()}</strong></div>
               <div>Canonical total: <strong>{Number(status?.canonical?.total || 0).toLocaleString()}</strong></div>
@@ -175,7 +186,7 @@ export default function DirectV2ReleasePage() {
           </div>
           <div style={{ background: "white", border: "1px solid #e4e7ec", borderRadius: 18, padding: 18 }}>
             <b>Safety</b>
-            <div style={{ marginTop: 12, color: "#667085", lineHeight: 1.7 }}>Fixed batch only. Exact 2,000-object count required. CF2 namespace required. Existing database gates remain active. Publication is idempotent and retains staging-to-canonical lineage.</div>
+            <div style={{ marginTop: 12, color: "#667085", lineHeight: 1.7 }}>Fixed batch only. Exact 2,000-object count required. CF2 namespace required. Structural status is not force-set: the existing database validator must accept every repaired object. Calculations are independently recomputed before any compatibility pass is recorded. Existing QA and publication gates remain active.</div>
           </div>
         </section>
 
