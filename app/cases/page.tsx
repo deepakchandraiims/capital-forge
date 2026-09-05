@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 type CanonicalCase = Record<string, any> & {
   id: string;
@@ -47,8 +46,6 @@ function answerOf(item: CanonicalCase) { return pickText(item, ["model_answer", 
 function label(value: unknown) { return String(value || "Case").replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase()); }
 
 export default function CasesPage() {
-  const params = useSearchParams();
-  const requestedCase = params.get("case");
   const [cases, setCases] = useState<CanonicalCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -69,6 +66,7 @@ export default function CasesPage() {
       const rows = Array.isArray(data.cases) ? data.cases : [];
       setCases(rows);
       if (rows.length) {
+        const requestedCase = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("case") : null;
         const requested = requestedCase ? rows.find((x: CanonicalCase) => x.id === requestedCase || x.source_record_key === requestedCase) : null;
         setSelectedId((id) => requested?.id || id || rows[0].id);
       }
