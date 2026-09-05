@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type ImportResult = {
   ok?: boolean;
   error?: string;
+  complete?: boolean;
   batchName?: string;
   batchId?: string;
   sourceObjects?: number;
@@ -19,9 +20,32 @@ type ImportResult = {
   statusSummary?: Record<string, number>;
   published?: number;
   note?: string;
-  uploadedFiles?: string[];
+  uploadedFiles?: UploadedFile[];
   uploadedFileCount?: number;
   expectedObjectCount?: number;
+};
+
+type UploadedFile = {
+  filename: string;
+  chunkIndex?: number;
+  totalChunks?: number;
+  objects?: number;
+  firstKey?: string;
+  lastKey?: string;
+  uploadedAt?: string;
+};
+
+type BatchStatus = {
+  ok?: boolean;
+  exists?: boolean;
+  batchName?: string;
+  batchId?: string;
+  status?: string;
+  stagedObjectsInBatch?: number;
+  expectedTotal?: number;
+  uploadedFiles?: UploadedFile[];
+  validationCalled?: boolean;
+  validationMessage?: string;
 };
 
 type Preview = {
@@ -31,74 +55,87 @@ type Preview = {
   interview: number;
 };
 
-type BatchStatus = {
-  uploadedFiles: string[];
-  uploadedFileCount: number;
-  stagedObjects: number;
-  expectedObjects: number;
-  totalChunks: number;
-};
-
+const TARGET_BATCH = "CF-V2-2000-20260905-001";
+const EXPECTED_TOTAL = 2000;
+const EXPECTED_PARTS = 20;
 const UPLOAD_CHUNK_SIZE = 100;
 
-function splitFileMeta(name: string) {
-  const match = name.match(/^(.*)_part_(\d+)_of_(\d+)\.json$/i);
+function parsePartNumber(name: string) {
+  const match = name.match(/part[_-]?(\d+)[_-]of[_-]?(\d+)/i);
   if (!match) return null;
-  return {
-    prefix: match[1],
-    part: Number(match[2]),
-    totalParts: Number(match[3]),
-  };
+  return { part: Number(match[1]), total: Number(match[2]) };
+}
+
+function sortedFiles(files: File[]) {
+  return [...files].sort((a, b) => {
+    const pa = parsePartNumber(a.name)?.part ?? 9999;
+    const pb = parsePartNumber(b.name)?.part ?? 9999;
+    return pa - pb || a.name.localeCompare(b.name);
+  });
 }
 
 export default function ContentImportPage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [secret, setSecret] = useState("");
-  const [batchName, setBatchName] = useState("CF-V2-2000-20260905-001");
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [preview, setPreview] = useState<Preview>({ total: 0, calculations: 0, cases: 0, interview: 0 });
-  const [status, setStatus] = useState<BatchStatus>({ uploadedFiles: [], uploadedFileCount: 0, stagedObjects: 0, expectedObjects: 2000, totalChunks: 20 });
+  const [batchStatus, setBatchStatus] = useState<BatchStatus | null>(null);
 
-  const ready = useMemo(() => Boolean(file && secret.trim() && !busy), [file, secret, busy]);
-  const splitMeta = file ? splitFileMeta(file.name) : null;
+  const ready = useMemo(() => Boolean(files.length && !busy), [files, busy]);
 
-  async function inspectFile(nextFile: File | null) {
-    setFile(nextFile);
+  async function refreshBatchStatus() {
+    try {
+      const response = await fetch(`/api/admin/content-import?batchName=${encodeURIComponent(TARGET_BATCH)}`, { cache: "no-store" });
+      const raw = await response.text();
+      const data = JSON.parse(raw) as BatchStatus;
+      if (response.ok && data.ok) setBatchStatus(data);
+    } catch {
+      // Status is supplementary; upload failures are surfaced separately.
+    }
+  }
+
+  useEffect(() => {
+    void refreshBatchStatus();
+  }, []);
+
+  async function inspectFiles(nextFiles: File[]) {
+    const ordered = sortedFiles(nextFiles);
+    setFiles(ordered);
     setResult(null);
     setMessage("");
     setPreview({ total: 0, calculations: 0, cases: 0, interview: 0 });
-    if (!nextFile) return;
+    if (!ordered.length) return;
 
     try {
-      const text = await nextFile.text();
-      const payload = JSON.parse(text);
-      const rows = Array.isArray(payload) ? payload : payload?.objects;
-      if (!Array.isArray(rows) || rows.length === 0) {
-        throw new Error("The selected file does not contain a staging array or an objects array.");
-      }
-      if (rows.length > 5000) {
-        throw new Error(`This protected importer accepts up to 5,000 objects per batch. Found ${rows.length}.`);
+      let total = 0;
+      let calculations = 0;
+      let cases = 0;
+      let interview = 0;
+      const allKeys: string[] = [];
+
+      for (const file of ordered) {
+        const text = await file.text();
+        const payload = JSON.parse(text);
+        const rows = Array.isArray(payload) ? payload : payload?.objects;
+        if (!Array.isArray(rows) || rows.length === 0) throw new Error(`${file.name} is empty or invalid.`);
+        if (rows.length > 5000) throw new Error(`${file.name} contains more than 5,000 objects.`);
+
+        const keys = rows.map((row: any) => String(row?.source_record_key || "")).filter(Boolean);
+        if (keys.length !== rows.length || new Set(keys).size !== rows.length) {
+          throw new Error(`${file.name} contains a missing or duplicate source_record_key.`);
+        }
+        allKeys.push(...keys);
+        total += rows.length;
+        calculations += rows.filter((row: any) => Boolean(row?.raw_content?.calculation_required ?? row?.calculation_required)).length;
+        cases += rows.filter((row: any) => (row?.raw_content?.origin_content_type || row?.content_type) === "decision_case" || row?.content_type === "case").length;
+        interview += rows.filter((row: any) => (row?.raw_content?.origin_content_type || row?.content_type) === "interview_question" || row?.content_type === "interview_question").length;
       }
 
-      const keys = rows.map((row: any) => String(row?.source_record_key || "")).filter(Boolean);
-      if (keys.length !== rows.length || new Set(keys).size !== rows.length) {
-        throw new Error("Every object must have one non-empty unique source_record_key.");
-      }
+      if (new Set(allKeys).size !== allKeys.length) throw new Error("The selected files contain duplicate source_record_key values across files.");
 
-      const calculations = rows.filter((row: any) => Boolean(row?.raw_content?.calculation_required ?? row?.calculation_required)).length;
-      const cases = rows.filter((row: any) => (row?.raw_content?.origin_content_type || row?.content_type) === "decision_case" || row?.content_type === "case").length;
-      const interview = rows.filter((row: any) => (row?.raw_content?.origin_content_type || row?.content_type) === "interview_question" || row?.content_type === "interview_question").length;
-      setPreview({ total: rows.length, calculations, cases, interview });
-
-      const meta = splitFileMeta(nextFile.name);
-      if (meta) {
-        setMessage(`Ready to upload Part ${String(meta.part).padStart(2, "0")} of ${meta.totalParts} · ${rows.length} objects. Uploaded-file status is tracked by batch.`);
-        setStatus((s) => ({ ...s, expectedObjects: rows.length * meta.totalParts, totalChunks: meta.totalParts }));
-      } else {
-        setMessage(`Ready to stage ${rows.length.toLocaleString()} objects in ${Math.ceil(rows.length / UPLOAD_CHUNK_SIZE)} protected chunks. Nothing will be auto-published.`);
-      }
+      setPreview({ total, calculations, cases, interview });
+      setMessage(`Ready to upload ${ordered.length} file${ordered.length === 1 ? "" : "s"} containing ${total.toLocaleString()} objects. No admin secret is required. Nothing will be auto-published.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
@@ -114,203 +151,158 @@ export default function ContentImportPage() {
     }
   }
 
-  function applyStatus(data: ImportResult) {
-    if (!data.uploadedFiles) return;
-    setStatus({
-      uploadedFiles: data.uploadedFiles,
-      uploadedFileCount: Number(data.uploadedFileCount ?? data.uploadedFiles.length),
-      stagedObjects: Number(data.stagedObjectsInBatch || 0),
-      expectedObjects: Number(data.expectedObjectCount || data.sourceObjects || status.expectedObjects || 0),
-      totalChunks: Number(data.totalChunks || status.totalChunks || 0),
-    });
-  }
-
-  async function refreshStatus() {
-    if (!secret.trim() || !batchName.trim()) {
-      setMessage("Enter the admin secret and batch name first.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/admin/content-import?batchName=${encodeURIComponent(batchName.trim())}`, {
-        headers: { "x-capital-forge-admin": secret.trim() },
-      });
-      const data = await parseResponse(response);
-      if (!response.ok || !data.ok) throw new Error(data.error || "Could not read batch status.");
-      applyStatus(data);
-      setMessage(`Batch status refreshed: ${Number(data.stagedObjectsInBatch || 0).toLocaleString()} objects staged across ${Number(data.uploadedFileCount || 0)} uploaded file(s).`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function sendChunk(rows: any[], filename: string, expectedTotal: number, chunkIndex: number, totalChunks: number, finalize: boolean) {
+  async function postChunk(args: {
+    filename: string;
+    rows: any[];
+    expectedTotal: number;
+    chunkIndex: number;
+    totalChunks: number;
+    finalize: boolean;
+  }) {
     const response = await fetch("/api/admin/content-import", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-capital-forge-admin": secret.trim(),
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        batchName: batchName.trim() || "CF-CONTENT-IMPORT-MANUAL",
-        filename,
-        expectedTotal,
-        chunkIndex,
-        totalChunks,
-        finalize,
-        payload: rows,
+        batchName: TARGET_BATCH,
+        filename: args.filename,
+        expectedTotal: args.expectedTotal,
+        chunkIndex: args.chunkIndex,
+        totalChunks: args.totalChunks,
+        finalize: args.finalize,
+        payload: args.rows,
       }),
     });
     const data = await parseResponse(response);
-    if (!response.ok || !data.ok) throw new Error(data.error || `Upload failed for ${filename}.`);
-    applyStatus(data);
+    if (!response.ok || !data.ok) throw new Error(data.error || `Upload failed for ${args.filename}.`);
     return data;
   }
 
   async function runImport() {
-    if (!file || !secret.trim()) return;
+    if (!files.length) return;
     setBusy(true);
     setResult(null);
 
     try {
-      const text = await file.text();
-      const payload = JSON.parse(text);
-      const rows = Array.isArray(payload) ? payload : payload?.objects;
-      if (!Array.isArray(rows) || rows.length === 0) throw new Error("The selected file is empty or invalid.");
-
-      const manualPart = splitFileMeta(file.name);
-      if (manualPart) {
-        const expectedTotal = rows.length * manualPart.totalParts;
-        setMessage(`Uploading ${file.name} · Part ${manualPart.part} of ${manualPart.totalParts}…`);
-        const data = await sendChunk(
-          rows,
-          file.name,
-          expectedTotal,
-          manualPart.part - 1,
-          manualPart.totalParts,
-          manualPart.part === manualPart.totalParts,
-        );
-        setResult(data);
-        setMessage(`Uploaded ${file.name}. Batch now has ${Number(data.stagedObjectsInBatch || 0).toLocaleString()} / ${expectedTotal.toLocaleString()} objects staged.`);
-        return;
-      }
-
-      const totalChunks = Math.ceil(rows.length / UPLOAD_CHUNK_SIZE);
+      const ordered = sortedFiles(files);
+      let finalResult: ImportResult | null = null;
       let insertedTotal = 0;
       let skippedTotal = 0;
-      let finalResult: ImportResult | null = null;
 
-      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
-        const start = chunkIndex * UPLOAD_CHUNK_SIZE;
-        const chunkRows = rows.slice(start, start + UPLOAD_CHUNK_SIZE);
-        const chunkFilename = `${file.name.replace(/\.json$/i, "")}_auto_chunk_${String(chunkIndex + 1).padStart(2, "0")}_of_${String(totalChunks).padStart(2, "0")}.json`;
-        setMessage(`Staging chunk ${chunkIndex + 1} of ${totalChunks} · ${Math.min(start + chunkRows.length, rows.length).toLocaleString()} / ${rows.length.toLocaleString()} objects…`);
-        const data = await sendChunk(chunkRows, chunkFilename, rows.length, chunkIndex, totalChunks, chunkIndex === totalChunks - 1);
-        insertedTotal += Number(data.inserted || 0);
-        skippedTotal += Number(data.existingKeysSkipped || 0);
-        finalResult = data;
+      for (const file of ordered) {
+        const text = await file.text();
+        const payload = JSON.parse(text);
+        const rows = Array.isArray(payload) ? payload : payload?.objects;
+        if (!Array.isArray(rows) || !rows.length) throw new Error(`${file.name} is empty or invalid.`);
+
+        const partMeta = parsePartNumber(file.name);
+        if (partMeta && partMeta.total === EXPECTED_PARTS && rows.length <= 250) {
+          setMessage(`Uploading ${file.name} · part ${partMeta.part} of ${partMeta.total}…`);
+          const data = await postChunk({
+            filename: file.name,
+            rows,
+            expectedTotal: EXPECTED_TOTAL,
+            chunkIndex: partMeta.part - 1,
+            totalChunks: partMeta.total,
+            finalize: partMeta.part === partMeta.total,
+          });
+          insertedTotal += Number(data.inserted || 0);
+          skippedTotal += Number(data.existingKeysSkipped || 0);
+          finalResult = data;
+          await refreshBatchStatus();
+          continue;
+        }
+
+        if (rows.length !== EXPECTED_TOTAL) {
+          throw new Error(`${file.name} is neither a recognised split part nor the complete ${EXPECTED_TOTAL.toLocaleString()}-object payload.`);
+        }
+
+        const totalChunks = Math.ceil(rows.length / UPLOAD_CHUNK_SIZE);
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+          const start = chunkIndex * UPLOAD_CHUNK_SIZE;
+          const chunkRows = rows.slice(start, start + UPLOAD_CHUNK_SIZE);
+          setMessage(`Uploading ${file.name} · chunk ${chunkIndex + 1} of ${totalChunks} · ${Math.min(start + chunkRows.length, rows.length).toLocaleString()} / ${rows.length.toLocaleString()} objects…`);
+          const data = await postChunk({
+            filename: `${file.name}#chunk-${String(chunkIndex + 1).padStart(2, "0")}`,
+            rows: chunkRows,
+            expectedTotal: EXPECTED_TOTAL,
+            chunkIndex,
+            totalChunks,
+            finalize: chunkIndex === totalChunks - 1,
+          });
+          insertedTotal += Number(data.inserted || 0);
+          skippedTotal += Number(data.existingKeysSkipped || 0);
+          finalResult = data;
+          await refreshBatchStatus();
+        }
       }
 
       if (!finalResult) throw new Error("No import result was returned.");
-      const completed = { ...finalResult, inserted: insertedTotal, existingKeysSkipped: skippedTotal, sourceObjects: rows.length };
+      const completed: ImportResult = { ...finalResult, inserted: insertedTotal, existingKeysSkipped: skippedTotal };
       setResult(completed);
-      setMessage(`Import finished: ${Number(completed.stagedObjectsInBatch || 0).toLocaleString()} objects staged. Nothing was auto-published.`);
+      await refreshBatchStatus();
+      setMessage(`Upload finished. ${Number(completed.stagedObjectsInBatch || 0).toLocaleString()} / ${EXPECTED_TOTAL.toLocaleString()} objects are staged. Nothing was auto-published.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
+      await refreshBatchStatus();
     } finally {
       setBusy(false);
     }
   }
 
-  const uploaded = new Set(status.uploadedFiles);
-  const expectedPartNames = splitMeta
-    ? Array.from({ length: splitMeta.totalParts }, (_, i) => `${splitMeta.prefix}_part_${String(i + 1).padStart(2, "0")}_of_${String(splitMeta.totalParts).padStart(2, "0")}.json`)
-    : [];
+  const uploadedFiles = batchStatus?.uploadedFiles || [];
+  const uploadedPartNumbers = new Set(uploadedFiles.map((f) => parsePartNumber(f.filename)?.part).filter((n): n is number => Boolean(n)));
 
   return (
     <main style={{ minHeight: "100vh", background: "#f6f8fc", padding: "36px", color: "#101828", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
       <div style={{ maxWidth: 1040, margin: "0 auto" }}>
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: "inline-flex", borderRadius: 999, background: "#eaf2ff", color: "#1457d9", padding: "7px 11px", fontWeight: 800, fontSize: 12 }}>CAPITAL FORGE CONTENT OS</div>
-          <h1 style={{ margin: "14px 0 6px", fontSize: 38, letterSpacing: "-.04em" }}>Private Content Import</h1>
-          <p style={{ color: "#667085", lineHeight: 1.6, maxWidth: 820 }}>Upload either the complete staging payload or one of the 20 split JSON files. The batch tracker records which filenames have already been staged so you can stop and resume safely.</p>
+          <h1 style={{ margin: "14px 0 6px", fontSize: 38, letterSpacing: "-.04em" }}>Direct V2 Content Upload</h1>
+          <p style={{ color: "#667085", lineHeight: 1.6, maxWidth: 820 }}>Upload the Capital Forge V2 payload directly. No admin secret is required. Select one split part, several parts, all 20 parts at once, or the complete 2,000-object payload. The endpoint is restricted to this one V2 batch and stages content only.</p>
         </div>
 
         <section style={{ background: "white", border: "1px solid #e4e7ec", borderRadius: 22, padding: 24, boxShadow: "0 18px 50px rgba(16,24,40,.06)" }}>
           <div style={{ display: "grid", gap: 18 }}>
             <label style={{ display: "grid", gap: 8, fontWeight: 800 }}>
-              1. Normalized staging payload / split part
-              <input type="file" accept="application/json,.json" onChange={(e) => inspectFile(e.target.files?.[0] || null)} style={{ border: "1px solid #d0d5dd", borderRadius: 14, padding: 14, background: "#fff" }} />
-              <small style={{ color: "#667085", fontWeight: 500 }}>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : "Select the full payload or capital_forge_2000_part_XX_of_20.json."}</small>
+              Select V2 JSON file(s)
+              <input type="file" multiple accept="application/json,.json" onChange={(e) => inspectFiles(Array.from(e.target.files || []))} style={{ border: "1px solid #d0d5dd", borderRadius: 14, padding: 14, background: "#fff" }} />
+              <small style={{ color: "#667085", fontWeight: 500 }}>{files.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected · ${preview.total.toLocaleString()} objects` : "Select Part 01–20 together for the fastest upload."}</small>
             </label>
 
-            <label style={{ display: "grid", gap: 8, fontWeight: 800 }}>
-              2. Import batch
-              <input value={batchName} onChange={(e) => setBatchName(e.target.value)} style={{ border: "1px solid #d0d5dd", borderRadius: 14, padding: 14 }} />
-            </label>
-
-            <label style={{ display: "grid", gap: 8, fontWeight: 800 }}>
-              3. Capital Forge admin secret
-              <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="CAPITAL_FORGE_ADMIN_SECRET" autoComplete="off" style={{ border: "1px solid #d0d5dd", borderRadius: 14, padding: 14 }} />
-              <small style={{ color: "#667085", fontWeight: 500 }}>The secret is sent only in request headers and is not stored by this page.</small>
-            </label>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
-              <button onClick={runImport} disabled={!ready} style={{ border: 0, borderRadius: 14, padding: "14px 18px", fontWeight: 900, background: ready ? "#1769ff" : "#cfd8e8", color: "white", cursor: ready ? "pointer" : "not-allowed" }}>
-                {busy ? "Working…" : splitMeta ? `Upload Part ${String(splitMeta.part).padStart(2, "0")} of ${splitMeta.totalParts} →` : `Stage ${preview.total ? preview.total.toLocaleString() : "Content"} Objects →`}
-              </button>
-              <button onClick={refreshStatus} disabled={!secret.trim() || busy} style={{ border: "1px solid #d0d5dd", borderRadius: 14, padding: "14px 18px", fontWeight: 800, background: "white", color: "#344054", cursor: !secret.trim() || busy ? "not-allowed" : "pointer" }}>Refresh Upload Status</button>
+            <div style={{ borderRadius: 14, border: "1px solid #d0d5dd", padding: 14, background: "#f9fafb" }}>
+              <b>Import batch</b><div style={{ marginTop: 6, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", color: "#475467" }}>{TARGET_BATCH}</div>
             </div>
+
+            <button onClick={runImport} disabled={!ready} style={{ border: 0, borderRadius: 14, padding: "14px 18px", fontWeight: 900, background: ready ? "#1769ff" : "#cfd8e8", color: "white", cursor: ready ? "pointer" : "not-allowed" }}>{busy ? "Uploading…" : `Upload ${files.length ? files.length : "V2"} File${files.length === 1 ? "" : "s"} →`}</button>
           </div>
         </section>
 
         <section style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 14 }}>
-          {[
-            [preview.total.toLocaleString(), "Selected-file objects"],
-            [preview.cases.toLocaleString(), "Decision cases"],
-            [preview.interview.toLocaleString(), "Interview"],
-            [preview.calculations.toLocaleString(), "Calculations"],
-          ].map(([value, label]) => (
+          {[[preview.total.toLocaleString(), "Selected objects"],[preview.cases.toLocaleString(), "Decision cases"],[preview.interview.toLocaleString(), "Interview"],[preview.calculations.toLocaleString(), "Calculations"]].map(([value, label]) => (
             <div key={label} style={{ background: "white", border: "1px solid #e4e7ec", borderRadius: 18, padding: 18 }}><b style={{ display: "block", fontSize: 28, color: "#1769ff" }}>{value}</b><span style={{ color: "#667085" }}>{label}</span></div>
           ))}
         </section>
 
         <section style={{ marginTop: 20, background: "white", border: "1px solid #e4e7ec", borderRadius: 20, padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "baseline", flexWrap: "wrap" }}>
-            <div>
-              <b style={{ fontSize: 20 }}>Batch upload tracker</b>
-              <div style={{ color: "#667085", marginTop: 4 }}>{status.stagedObjects.toLocaleString()} / {status.expectedObjects.toLocaleString()} objects staged · {status.uploadedFileCount} file(s) recorded</div>
-            </div>
+            <div><b style={{ fontSize: 20 }}>Uploaded files</b><div style={{ color: "#667085", marginTop: 4 }}>{uploadedPartNumbers.size} / {EXPECTED_PARTS} split parts detected · {(batchStatus?.stagedObjectsInBatch || 0).toLocaleString()} / {EXPECTED_TOTAL.toLocaleString()} objects staged</div></div>
+            <button onClick={() => refreshBatchStatus()} disabled={busy} style={{ border: "1px solid #d0d5dd", borderRadius: 10, padding: "8px 12px", background: "white", fontWeight: 800, cursor: "pointer" }}>Refresh status</button>
           </div>
-
-          {expectedPartNames.length > 0 ? (
-            <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
-              {expectedPartNames.map((name, idx) => {
-                const done = uploaded.has(name);
-                return <div key={name} style={{ border: `1px solid ${done ? "#abefc6" : "#e4e7ec"}`, background: done ? "#ecfdf3" : "#f9fafb", borderRadius: 12, padding: "10px 12px", fontSize: 13 }}>
-                  <b style={{ color: done ? "#067647" : "#475467" }}>{done ? "✓ Uploaded" : "○ Pending"} · Part {String(idx + 1).padStart(2, "0")}</b>
-                  <div style={{ color: "#667085", marginTop: 3, overflowWrap: "anywhere" }}>{name}</div>
-                </div>;
-              })}
-            </div>
-          ) : status.uploadedFiles.length > 0 ? (
-            <div style={{ marginTop: 14, display: "grid", gap: 7 }}>
-              {status.uploadedFiles.map((name) => <div key={name} style={{ border: "1px solid #abefc6", background: "#ecfdf3", borderRadius: 10, padding: "9px 11px", color: "#067647", overflowWrap: "anywhere" }}>✓ {name}</div>)}
-            </div>
-          ) : (
-            <p style={{ color: "#667085", marginBottom: 0 }}>No uploaded files are shown yet. Enter the admin secret and click <b>Refresh Upload Status</b>, or upload Part 01.</p>
-          )}
+          <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(5,minmax(0,1fr))", gap: 9 }}>
+            {Array.from({ length: EXPECTED_PARTS }, (_, idx) => idx + 1).map((part) => {
+              const uploaded = uploadedPartNumbers.has(part);
+              return <div key={part} style={{ borderRadius: 11, border: `1px solid ${uploaded ? "#abefc6" : "#eaecf0"}`, background: uploaded ? "#ecfdf3" : "#f9fafb", padding: "10px 11px", color: uploaded ? "#067647" : "#667085", fontWeight: 800 }}>Part {String(part).padStart(2, "0")} {uploaded ? "✓" : "—"}</div>;
+            })}
+          </div>
+          {uploadedFiles.length > 0 && <div style={{ marginTop: 16, color: "#667085", fontSize: 13, lineHeight: 1.7 }}>Server-recorded files: {uploadedFiles.map((f) => f.filename).join(" · ")}</div>}
         </section>
 
         {message && <div style={{ marginTop: 20, borderRadius: 16, padding: 16, background: result?.ok ? "#ecfdf3" : "#fff8eb", border: `1px solid ${result?.ok ? "#abefc6" : "#fedf89"}`, color: "#344054" }}>{message}</div>}
-
         {result && <section style={{ marginTop: 20, background: "#101828", color: "#e6edf7", borderRadius: 20, padding: 20, overflow: "auto" }}><pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.55 }}>{JSON.stringify(result, null, 2)}</pre></section>}
 
         <section style={{ marginTop: 20, border: "1px solid #fecaca", background: "#fff7f7", borderRadius: 18, padding: 18 }}>
-          <b style={{ color: "#b42318" }}>Safety rule</b>
-          <p style={{ color: "#667085", lineHeight: 1.6, marginBottom: 0 }}>This importer stages content only. It does not bypass structural validation, deterministic calculation verification, qualitative review or the canonical publication gate.</p>
+          <b style={{ color: "#b42318" }}>Staging safety rule</b>
+          <p style={{ color: "#667085", lineHeight: 1.6, marginBottom: 0 }}>Direct upload is limited to batch {TARGET_BATCH}, CF2 record keys and the Capital Forge V2 source model. It cannot publish canonical content. Once all 2,000 objects are staged, the batch is treated as complete and new content is refused.</p>
         </section>
       </div>
     </main>
