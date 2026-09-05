@@ -1,8 +1,40 @@
+import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const TARGET_BATCH = "CF-V2-2000-20260905-001";
+const SOURCE_MODEL = "capital-forge-v2-remediated-final";
+const EXPECTED_TOTAL = 2000;
+const EXPECTED_CHUNKS = 20;
+const EXPECTED_CHUNK_SIZE = 100;
+
+// Logical signatures of [source_record_key, content_hash] for the exact 20 V2 chunks.
+// This permits direct upload without exposing an admin secret while refusing arbitrary public writes.
+const EXPECTED_CHUNK_SIGNATURES = [
+  "a6664b89daef25553f1e291762a810346f3a034b48339cff3d2cad0eb3a42e71",
+  "4cf48b67d0467a2c7da5fe112759baffa964051451a0d97fab1515d0fa1944d5",
+  "127f1be432c1fd54b7804789b740de0749e091310cfd1940115d8d9a53b367ee",
+  "09b1393240bc73f354227b2325d96b0e80e887f10f4c8e570d5a646da0a0b40a",
+  "cd7e9936b93c8d295d8b1384fed731fdc21b2a90c4232e1326cc184b6f64f04d",
+  "cbe91ed4644cac95e71773180d538094bfb649ea7ea50cd2004cc131f34ef1b3",
+  "5fcb9e5c6ce8c500b85280968d41a1b75bd1fcf6833aad31f99418fd92994e07",
+  "c4591f4dc9f5c67095cc064a3fce8f841165e56cad51f6517bf745deec61adfa",
+  "c12e6b469f07711539ef7120a8883cccb404443e9b31ca0cd23976752030d95c",
+  "bd1bd6f5d16029d93b9f4823d042f64b280a7467f5f52a12db8e66114f595b62",
+  "37477c4dc01a6cc9687d91139ff079d029b78c150a1639d5455044d7df162f4f",
+  "e2f3438df6a2791f2fa3460c3d1c081b80be5217632eadbfc05cf8c669315aec",
+  "cb3233a1052a960d63a441a4d0bff95dff04944260d04d8b19affd7613d17b22",
+  "8ddf540a23086c3f6130e00168d47426a11f43b5b2c3b3e9ec651a167b13bb99",
+  "cfb7473d327273c27f26a32dd1258592391e18b3263c4ac19d982d5e022d896b",
+  "25fda34cff27cc8b3edce71cd8bd26973ff151637d99636f3441858e33e41803",
+  "152b5b1b372413d89c8a492eb8e21793618e9f317b86b5761468acebcded272f",
+  "a54b3e48fa161385a4392f2cb75da03c59b45f48c3742f7a9948ebdb27421901",
+  "dd3666cabe715b684a0df2b6b60091d118910b02b16cf9586932bc373ddde3bb",
+  "16de44529a92f489b97fb98cdf48e3aa9f230e5f3999020104599d48f607284f",
+] as const;
 
 type StagingRow = {
   source_type?: string;
@@ -19,9 +51,12 @@ type StagingRow = {
 
 type UploadFileEntry = {
   filename: string;
-  chunk_index: number;
+  chunkIndex: number;
+  totalChunks: number;
   objects: number;
-  uploaded_at: string;
+  firstKey: string;
+  lastKey: string;
+  uploadedAt: string;
 };
 
 function slugify(value: string) {
@@ -44,39 +79,13 @@ function normalizeInput(payload: unknown): StagingRow[] {
       source_record_key: String(o.source_record_key || ""),
       content_hash: typeof o.content_hash === "string" ? o.content_hash : null,
       normalized_text: typeof o.normalized_text === "string" ? o.normalized_text : null,
-      detected_domain: typeof o.detected_domain === "string"
-        ? o.detected_domain
-        : typeof o.domain === "string"
-          ? o.domain
-          : null,
-      detected_topic: typeof o.detected_topic === "string"
-        ? o.detected_topic
-        : typeof o.topic === "string"
-          ? o.topic
-          : null,
-      proposed_difficulty: typeof o.proposed_difficulty === "number"
-        ? o.proposed_difficulty
-        : typeof o.difficulty === "number"
-          ? o.difficulty
-          : null,
+      detected_domain: typeof o.detected_domain === "string" ? o.detected_domain : typeof o.domain === "string" ? o.domain : null,
+      detected_topic: typeof o.detected_topic === "string" ? o.detected_topic : typeof o.topic === "string" ? o.topic : null,
+      proposed_difficulty: typeof o.proposed_difficulty === "number" ? o.proposed_difficulty : typeof o.difficulty === "number" ? o.difficulty : null,
       raw_content: (o.raw_content || o) as Record<string, unknown>,
     }));
   }
   throw new Error("Payload must be a staging array or a normalized manifest with an objects array.");
-}
-
-function splitFileMeta(name: string) {
-  const match = name.match(/_part_(\d+)_of_(\d+)\.json$/i);
-  if (!match) return null;
-  return { part: Number(match[1]), totalParts: Number(match[2]) };
-}
-
-function getAdminSecretError(request: Request) {
-  const adminSecret = process.env.CAPITAL_FORGE_ADMIN_SECRET;
-  const suppliedSecret = request.headers.get("x-capital-forge-admin");
-  if (!adminSecret) return { status: 503, error: "CAPITAL_FORGE_ADMIN_SECRET is not configured." };
-  if (!suppliedSecret || suppliedSecret !== adminSecret) return { status: 401, error: "Unauthorized." };
-  return null;
 }
 
 function createSupabase() {
@@ -88,62 +97,68 @@ function createSupabase() {
   });
 }
 
-export async function GET(request: Request) {
-  const authError = getAdminSecretError(request);
-  if (authError) return NextResponse.json({ ok: false, error: authError.error }, { status: authError.status });
+function logicalChunkSignature(rows: StagingRow[]) {
+  const pairs = rows.map((r) => [String(r.source_record_key || ""), String(r.content_hash || "")]);
+  return createHash("sha256").update(JSON.stringify(pairs), "utf8").digest("hex");
+}
 
+async function readBatchStatus(supabase: ReturnType<typeof createClient>) {
+  const { data: batch, error } = await supabase
+    .from("cf_import_batches")
+    .select("id,batch_name,status,metadata")
+    .eq("batch_name", TARGET_BATCH)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Batch read failed: ${error.message}`);
+
+  if (!batch) {
+    return {
+      batch: null,
+      stagedCount: 0,
+      uploadedFiles: [] as UploadFileEntry[],
+      metadata: {} as Record<string, unknown>,
+    };
+  }
+
+  const { count, error: countError } = await supabase
+    .from("cf_content_staging")
+    .select("id", { count: "exact", head: true })
+    .eq("import_batch_id", batch.id);
+  if (countError) throw new Error(`Staging count failed: ${countError.message}`);
+
+  const metadata = (batch.metadata || {}) as Record<string, any>;
+  const uploadedFiles = Array.isArray(metadata.uploaded_files) ? metadata.uploaded_files as UploadFileEntry[] : [];
+  return { batch, stagedCount: count || 0, uploadedFiles, metadata };
+}
+
+export async function GET(request: Request) {
   const supabase = createSupabase();
   if (!supabase) return NextResponse.json({ ok: false, error: "Supabase server configuration is incomplete." }, { status: 503 });
 
   try {
     const url = new URL(request.url);
-    const batchName = String(url.searchParams.get("batchName") || "").trim();
-    if (!batchName) return NextResponse.json({ ok: false, error: "batchName is required." }, { status: 400 });
-
-    const { data: batch, error } = await supabase
-      .from("cf_import_batches")
-      .select("id,batch_name,status,metadata")
-      .eq("batch_name", batchName)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw new Error(`Batch read failed: ${error.message}`);
-    if (!batch) {
-      return NextResponse.json({
-        ok: true,
-        batchName,
-        stagedObjectsInBatch: 0,
-        expectedObjectCount: 2000,
-        totalChunks: 20,
-        uploadedFiles: [],
-        uploadedFileCount: 0,
-        published: 0,
-        note: "Batch has not been created yet.",
-      });
+    const requestedBatch = String(url.searchParams.get("batchName") || TARGET_BATCH).trim();
+    if (requestedBatch !== TARGET_BATCH) {
+      return NextResponse.json({ ok: false, error: "This direct uploader only exposes the Capital Forge V2 import batch." }, { status: 403 });
     }
 
-    const { count, error: countError } = await supabase
-      .from("cf_content_staging")
-      .select("id", { count: "exact", head: true })
-      .eq("import_batch_id", batch.id);
-    if (countError) throw new Error(`Staging count failed: ${countError.message}`);
-
-    const metadata = (batch.metadata || {}) as Record<string, any>;
-    const uploadedEntries = Array.isArray(metadata.uploaded_files) ? metadata.uploaded_files as UploadFileEntry[] : [];
-    const uploadedFiles = uploadedEntries.map((x) => String(x.filename)).filter(Boolean);
-
+    const state = await readBatchStatus(supabase);
     return NextResponse.json({
       ok: true,
-      batchName: batch.batch_name,
-      batchId: batch.id,
-      status: batch.status,
-      stagedObjectsInBatch: count || 0,
-      expectedObjectCount: Number(metadata.expected_object_count || 0),
-      totalChunks: Number(metadata.total_chunks || 0),
-      uploadedFiles,
-      uploadedFileCount: uploadedFiles.length,
+      exists: Boolean(state.batch),
+      batchName: TARGET_BATCH,
+      batchId: state.batch?.id || null,
+      status: state.batch?.status || "not-created",
+      stagedObjectsInBatch: state.stagedCount,
+      expectedTotal: EXPECTED_TOTAL,
+      expectedObjectCount: EXPECTED_TOTAL,
+      totalChunks: EXPECTED_CHUNKS,
+      uploadedFiles: state.uploadedFiles,
+      uploadedFileCount: state.uploadedFiles.length,
+      complete: state.stagedCount === EXPECTED_TOTAL,
       published: 0,
-      note: "Persistent batch upload tracker.",
+      note: "Direct V2 batch status. No admin secret required.",
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
@@ -151,60 +166,73 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authError = getAdminSecretError(request);
-  if (authError) return NextResponse.json({ ok: false, error: authError.error }, { status: authError.status });
-
   const supabase = createSupabase();
   if (!supabase) return NextResponse.json({ ok: false, error: "Supabase server configuration is incomplete." }, { status: 503 });
 
   try {
     const body = await request.json();
+    const batchName = String(body?.batchName || "").trim();
+    if (batchName !== TARGET_BATCH) {
+      return NextResponse.json({ ok: false, error: `Direct upload is restricted to batch ${TARGET_BATCH}.` }, { status: 403 });
+    }
+
     const rows = normalizeInput(body?.payload ?? body);
     const objectCount = rows.length;
-    const originalFilename = typeof body?.filename === "string" && body.filename.trim()
-      ? body.filename.trim()
-      : "capital_forge_staging_payload.json";
+    const expectedTotal = Number(body?.expectedTotal ?? EXPECTED_TOTAL);
+    const chunkIndex = Number(body?.chunkIndex ?? -1);
+    const totalChunks = Number(body?.totalChunks ?? EXPECTED_CHUNKS);
+    const originalFilename = typeof body?.filename === "string" && body.filename.trim() ? body.filename.trim() : `capital_forge_v2_chunk_${chunkIndex + 1}.json`;
 
-    const fileMeta = splitFileMeta(originalFilename);
-    const inferredTotalChunks = fileMeta?.totalParts ?? Number(body?.totalChunks ?? 1);
-    const inferredChunkIndex = fileMeta ? fileMeta.part - 1 : Number(body?.chunkIndex ?? 0);
-    const inferredExpectedTotal = fileMeta ? objectCount * fileMeta.totalParts : Number(body?.expectedTotal ?? objectCount);
-
-    const expectedTotal = Number.isInteger(inferredExpectedTotal) ? inferredExpectedTotal : objectCount;
-    const chunkIndex = Number.isInteger(inferredChunkIndex) ? inferredChunkIndex : 0;
-    const totalChunks = Number.isInteger(inferredTotalChunks) ? inferredTotalChunks : 1;
-    const finalize = body?.finalize === true || (fileMeta ? fileMeta.part === fileMeta.totalParts : totalChunks === 1);
-
-    const batchName = typeof body?.batchName === "string" && body.batchName.trim()
-      ? body.batchName.trim()
-      : "CF-CONTENT-IMPORT-MANUAL";
-
-    if (objectCount === 0) {
-      return NextResponse.json({ ok: false, error: "Import chunk is empty." }, { status: 400 });
+    if (expectedTotal !== EXPECTED_TOTAL || totalChunks !== EXPECTED_CHUNKS) {
+      return NextResponse.json({ ok: false, error: `This one-time uploader requires exactly ${EXPECTED_TOTAL} objects across ${EXPECTED_CHUNKS} chunks.` }, { status: 400 });
     }
-    if (objectCount > 250) {
-      return NextResponse.json({ ok: false, error: `Each protected request may contain at most 250 objects; received ${objectCount}. Use chunked upload.` }, { status: 400 });
+    if (!Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= EXPECTED_CHUNKS) {
+      return NextResponse.json({ ok: false, error: "Invalid V2 chunk index." }, { status: 400 });
     }
-    if (expectedTotal <= 0 || expectedTotal > 5000) {
-      return NextResponse.json({ ok: false, error: `Expected batch total must be between 1 and 5,000; received ${expectedTotal}.` }, { status: 400 });
-    }
-    if (chunkIndex < 0 || totalChunks < 1 || chunkIndex >= totalChunks) {
-      return NextResponse.json({ ok: false, error: "Invalid chunkIndex/totalChunks metadata." }, { status: 400 });
+    if (objectCount !== EXPECTED_CHUNK_SIZE) {
+      return NextResponse.json({ ok: false, error: `V2 chunk ${chunkIndex + 1} must contain exactly ${EXPECTED_CHUNK_SIZE} objects; received ${objectCount}.` }, { status: 400 });
     }
 
-    const keys = rows.map((r) => String(r.source_record_key || "").trim()).filter(Boolean);
-    if (keys.length !== objectCount || new Set(keys).size !== objectCount) {
-      return NextResponse.json({ ok: false, error: `Chunk must contain ${objectCount} non-empty unique source_record_key values.` }, { status: 400 });
+    const keys = rows.map((r) => String(r.source_record_key || "").trim());
+    if (keys.some((k) => !/^CF2-[A-Z]+-\d{4}$/.test(k)) || new Set(keys).size !== objectCount) {
+      return NextResponse.json({ ok: false, error: "Every row must have one unique CF2 source_record_key." }, { status: 400 });
+    }
+    if (rows.some((r) => r.source_model !== SOURCE_MODEL)) {
+      return NextResponse.json({ ok: false, error: `Only source_model=${SOURCE_MODEL} is accepted by this direct uploader.` }, { status: 400 });
+    }
+    if (rows.some((r) => !r.content_hash || !r.content_type || !r.raw_content || typeof r.raw_content !== "object")) {
+      return NextResponse.json({ ok: false, error: "Each V2 row must contain content_hash, content_type and raw_content." }, { status: 400 });
     }
 
-    for (const row of rows) {
-      if (!row.content_type || !row.raw_content || typeof row.raw_content !== "object") {
-        return NextResponse.json({ ok: false, error: `Invalid content_type/raw_content on ${row.source_record_key}.` }, { status: 400 });
-      }
+    const signature = logicalChunkSignature(rows);
+    if (signature !== EXPECTED_CHUNK_SIGNATURES[chunkIndex]) {
+      return NextResponse.json({ ok: false, error: `Chunk ${chunkIndex + 1} does not match the approved Capital Forge V2 payload. Select the correct split file.` }, { status: 403 });
+    }
+
+    let state = await readBatchStatus(supabase);
+    if (state.stagedCount === EXPECTED_TOTAL) {
+      return NextResponse.json({
+        ok: true,
+        complete: true,
+        batchName: TARGET_BATCH,
+        batchId: state.batch?.id,
+        sourceObjects: EXPECTED_TOTAL,
+        chunkObjects: objectCount,
+        chunkIndex,
+        totalChunks: EXPECTED_CHUNKS,
+        existingKeysSkipped: objectCount,
+        inserted: 0,
+        stagedObjectsInBatch: EXPECTED_TOTAL,
+        uploadedFiles: state.uploadedFiles,
+        uploadedFileCount: state.uploadedFiles.length,
+        validationCalled: false,
+        validationMessage: "Batch already complete; no write performed.",
+        published: 0,
+        note: "All 2,000 objects are already staged.",
+      });
     }
 
     const domainTopicPairs = new Map<string, { domain: string; topic: string }>();
-    const sourceModels = new Set<string>();
     for (const row of rows) {
       const domain = row.detected_domain || String(row.raw_content?.domain || "");
       const topic = row.detected_topic || String(row.raw_content?.topic || "");
@@ -212,7 +240,6 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: `Missing domain/topic on ${row.source_record_key}.` }, { status: 400 });
       }
       domainTopicPairs.set(`${domain}|||${topic}`, { domain, topic });
-      if (row.source_model) sourceModels.add(row.source_model);
     }
 
     const domainNames = [...new Set([...domainTopicPairs.values()].map((x) => x.domain))].sort();
@@ -234,9 +261,7 @@ export async function POST(request: Request) {
     if (domainReadError) throw new Error(`Domain read failed: ${domainReadError.message}`);
 
     const domainIdBySlug = new Map((domainData || []).map((d) => [d.slug, d.id]));
-    if (domainIdBySlug.size !== domainRows.length) {
-      throw new Error(`Expected ${domainRows.length} normalized domains in this chunk; resolved ${domainIdBySlug.size}.`);
-    }
+    if (domainIdBySlug.size !== domainRows.length) throw new Error(`Expected ${domainRows.length} domains; resolved ${domainIdBySlug.size}.`);
 
     const topicRows = [...domainTopicPairs.values()].map(({ domain, topic }) => ({
       domain_id: domainIdBySlug.get(slugify(domain)),
@@ -247,70 +272,59 @@ export async function POST(request: Request) {
       difficulty_max: 10,
       active: true,
     }));
-
     for (const part of chunk(topicRows, 100)) {
       const { error } = await supabase.from("cf_topics").upsert(part, { onConflict: "domain_id,slug", ignoreDuplicates: true });
       if (error) throw new Error(`Topic upsert failed: ${error.message}`);
     }
 
-    let { data: batch, error: batchReadError } = await supabase
-      .from("cf_import_batches")
-      .select("id,batch_name,status,metadata")
-      .eq("batch_name", batchName)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (batchReadError) throw new Error(`Import batch read failed: ${batchReadError.message}`);
-
+    let batch = state.batch;
     if (!batch) {
       const { data, error } = await supabase
         .from("cf_import_batches")
         .insert({
-          batch_name: batchName,
+          batch_name: TARGET_BATCH,
           source_type: "json",
-          source_model: sourceModels.size === 1 ? [...sourceModels][0] : "capital-forge-mixed-import",
+          source_model: SOURCE_MODEL,
           original_filename: originalFilename,
           status: "staging",
           metadata: {
-            source: "Capital Forge protected chunked content importer",
-            expected_object_count: expectedTotal,
-            total_chunks: totalChunks,
+            source: "Capital Forge one-time direct V2 importer",
+            expected_object_count: EXPECTED_TOTAL,
+            total_chunks: EXPECTED_CHUNKS,
             uploaded_files: [],
-            parser_contract: "capital-forge-staging-import-v4-file-tracker",
+            parser_contract: "capital-forge-direct-v2-exact-chunk-signatures",
           },
         })
         .select("id,batch_name,status,metadata")
         .single();
       if (error) throw new Error(`Import batch creation failed: ${error.message}`);
       batch = data;
+      state = { ...state, batch, metadata: (data.metadata || {}) as Record<string, unknown> };
     }
 
-    const metadata = (batch.metadata || {}) as Record<string, any>;
-    const recordedExpected = Number(metadata.expected_object_count || expectedTotal);
-    const recordedChunks = Number(metadata.total_chunks || totalChunks);
-    if (recordedExpected !== expectedTotal || recordedChunks !== totalChunks) {
-      return NextResponse.json({
-        ok: false,
-        error: `Batch contract mismatch: existing batch expects ${recordedExpected} objects across ${recordedChunks} chunks, but this file implies ${expectedTotal} objects across ${totalChunks} chunks. Keep the same 20-part split set and batch name.`,
-      }, { status: 409 });
-    }
-
-    const existing = new Set<string>();
+    const existingInBatch = new Set<string>();
+    const conflictingKeys: string[] = [];
     for (const part of chunk(keys, 100)) {
       const { data, error } = await supabase
         .from("cf_content_staging")
         .select("source_record_key,import_batch_id")
         .in("source_record_key", part);
       if (error) throw new Error(`Existing-key lookup failed: ${error.message}`);
-      for (const row of data || []) existing.add(row.source_record_key);
+      for (const row of data || []) {
+        if (row.import_batch_id === batch.id) existingInBatch.add(row.source_record_key);
+        else conflictingKeys.push(row.source_record_key);
+      }
+    }
+    if (conflictingKeys.length) {
+      return NextResponse.json({ ok: false, error: `${conflictingKeys.length} CF2 key(s) already exist in another staging batch; refusing ambiguous lineage.` }, { status: 409 });
     }
 
     const newRows = rows
-      .filter((r) => !existing.has(r.source_record_key))
+      .filter((r) => !existingInBatch.has(r.source_record_key))
       .map((r) => ({
         import_batch_id: batch!.id,
-        source_type: r.source_type || "manual",
-        source_model: r.source_model || "capital-forge-import",
+        source_type: r.source_type || "jsonl",
+        source_model: SOURCE_MODEL,
         content_type: r.content_type,
         source_record_key: r.source_record_key,
         raw_content: r.raw_content,
@@ -326,132 +340,89 @@ export async function POST(request: Request) {
       if (error) throw new Error(`Staging insert failed: ${error.message}`);
     }
 
-    const { count: stagedCount, error: countError } = await supabase
-      .from("cf_content_staging")
-      .select("id", { count: "exact", head: true })
-      .eq("import_batch_id", batch.id);
-    if (countError) throw new Error(`Staging count failed: ${countError.message}`);
-
-    const previousEntries = Array.isArray(metadata.uploaded_files) ? metadata.uploaded_files as UploadFileEntry[] : [];
-    const newEntry: UploadFileEntry = {
+    const previousEntries = Array.isArray((state.metadata as any)?.uploaded_files) ? (state.metadata as any).uploaded_files as UploadFileEntry[] : [];
+    const entry: UploadFileEntry = {
       filename: originalFilename,
-      chunk_index: chunkIndex,
+      chunkIndex,
+      totalChunks: EXPECTED_CHUNKS,
       objects: objectCount,
-      uploaded_at: new Date().toISOString(),
+      firstKey: keys[0],
+      lastKey: keys[keys.length - 1],
+      uploadedAt: new Date().toISOString(),
     };
-    const byFilename = new Map<string, UploadFileEntry>();
-    for (const item of previousEntries) if (item?.filename) byFilename.set(String(item.filename), item);
-    byFilename.set(originalFilename, newEntry);
-    const uploadedEntries = [...byFilename.values()].sort((a, b) => a.chunk_index - b.chunk_index || a.filename.localeCompare(b.filename));
+    const mergedEntries = [...previousEntries.filter((x) => x.chunkIndex !== chunkIndex), entry].sort((a, b) => a.chunkIndex - b.chunkIndex);
     const nextMetadata = {
-      ...metadata,
-      expected_object_count: expectedTotal,
-      total_chunks: totalChunks,
-      uploaded_files: uploadedEntries,
-      uploaded_file_count: uploadedEntries.length,
-      staged_object_count: stagedCount || 0,
-      last_uploaded_filename: originalFilename,
+      ...(state.metadata || {}),
+      source: "Capital Forge one-time direct V2 importer",
+      expected_object_count: EXPECTED_TOTAL,
+      total_chunks: EXPECTED_CHUNKS,
+      uploaded_files: mergedEntries,
+      parser_contract: "capital-forge-direct-v2-exact-chunk-signatures",
     };
+    const { error: metadataError } = await supabase.from("cf_import_batches").update({ metadata: nextMetadata }).eq("id", batch.id);
+    if (metadataError) throw new Error(`Batch tracker update failed: ${metadataError.message}`);
 
-    await supabase.from("cf_import_batches").update({
-      status: finalize ? "staged" : "staging",
-      metadata: nextMetadata,
-    }).eq("id", batch.id);
-
-    const uploadedFiles = uploadedEntries.map((x) => x.filename);
-
-    if (!finalize) {
-      return NextResponse.json({
-        ok: true,
-        partial: true,
-        batchName: batch.batch_name,
-        batchId: batch.id,
-        sourceObjects: expectedTotal,
-        expectedObjectCount: expectedTotal,
-        chunkObjects: objectCount,
-        chunkIndex,
-        totalChunks,
-        existingKeysSkipped: existing.size,
-        inserted: newRows.length,
-        stagedObjectsInBatch: stagedCount || 0,
-        uploadedFiles,
-        uploadedFileCount: uploadedFiles.length,
-        validationCalled: false,
-        validationMessage: "Deferred until final chunk.",
-        published: 0,
-        note: "Chunk staged successfully; persistent uploaded-file tracker updated.",
-      });
-    }
-
-    if ((stagedCount || 0) !== expectedTotal) {
-      await supabase.from("cf_import_batches").update({ status: "staging", metadata: nextMetadata }).eq("id", batch.id);
-      return NextResponse.json({
-        ok: false,
-        error: `Finalization refused: expected ${expectedTotal} staged objects in batch, found ${stagedCount || 0}. Upload the missing split files; completed files are idempotently skipped.`,
-        batchName: batch.batch_name,
-        batchId: batch.id,
-        stagedObjectsInBatch: stagedCount || 0,
-        sourceObjects: expectedTotal,
-        expectedObjectCount: expectedTotal,
-        chunkIndex,
-        totalChunks,
-        uploadedFiles,
-        uploadedFileCount: uploadedFiles.length,
-      }, { status: 409 });
-    }
+    const refreshed = await readBatchStatus(supabase);
+    const complete = refreshed.stagedCount === EXPECTED_TOTAL;
+    await supabase.from("cf_import_batches").update({ status: complete ? "staged" : "staging" }).eq("id", batch.id);
 
     let validationCalled = false;
-    let validationMessage = "Not attempted";
-    const variants = [
-      { p_batch_id: batch.id },
-      { p_import_batch_id: batch.id },
-      { batch_id: batch.id },
-    ];
-    for (const params of variants) {
-      const { error } = await supabase.rpc("cf_validate_import_batch", params);
-      if (!error) {
-        validationCalled = true;
-        validationMessage = `Validated using ${Object.keys(params)[0]}`;
-        break;
+    let validationMessage = complete ? "Not yet validated" : "Deferred until all 2,000 objects are staged.";
+    let statusSummary: Record<string, number> | undefined;
+
+    if (complete) {
+      const variants = [
+        { p_batch_id: batch.id },
+        { p_import_batch_id: batch.id },
+        { batch_id: batch.id },
+      ];
+      for (const params of variants) {
+        const { error } = await supabase.rpc("cf_validate_import_batch", params);
+        if (!error) {
+          validationCalled = true;
+          validationMessage = `Validated using ${Object.keys(params)[0]}`;
+          break;
+        }
+        const message = String(error.message || "");
+        validationMessage = message;
+        const mismatch = /function .* does not exist|Could not find the function|schema cache|parameter/i.test(message);
+        if (!mismatch) break;
       }
-      const message = String(error.message || "");
-      const mismatch = /function .* does not exist|Could not find the function|schema cache|parameter/i.test(message);
-      validationMessage = message;
-      if (!mismatch) break;
-    }
 
-    const { data: stagedRows, error: summaryError } = await supabase
-      .from("cf_content_staging")
-      .select("content_type,validation_status,deterministic_status,source_record_key")
-      .eq("import_batch_id", batch.id);
-    if (summaryError) throw new Error(`Import summary read failed: ${summaryError.message}`);
-
-    const statusSummary: Record<string, number> = {};
-    for (const row of stagedRows || []) {
-      const key = `${row.content_type} / ${row.validation_status}`;
-      statusSummary[key] = (statusSummary[key] || 0) + 1;
+      const { data: stagedRows, error: summaryError } = await supabase
+        .from("cf_content_staging")
+        .select("content_type,validation_status,source_record_key")
+        .eq("import_batch_id", batch.id);
+      if (summaryError) throw new Error(`Import summary read failed: ${summaryError.message}`);
+      statusSummary = {};
+      for (const row of stagedRows || []) {
+        const key = `${row.content_type} / ${row.validation_status}`;
+        statusSummary[key] = (statusSummary[key] || 0) + 1;
+      }
     }
 
     return NextResponse.json({
       ok: true,
-      partial: false,
-      batchName: batch.batch_name,
+      complete,
+      batchName: TARGET_BATCH,
       batchId: batch.id,
-      sourceObjects: expectedTotal,
-      expectedObjectCount: expectedTotal,
+      sourceObjects: EXPECTED_TOTAL,
       chunkObjects: objectCount,
       chunkIndex,
-      totalChunks,
-      existingKeysSkipped: existing.size,
+      totalChunks: EXPECTED_CHUNKS,
+      existingKeysSkipped: existingInBatch.size,
       inserted: newRows.length,
-      stagedObjectsInBatch: stagedRows?.length || 0,
-      uploadedFiles,
-      uploadedFileCount: uploadedFiles.length,
+      stagedObjectsInBatch: refreshed.stagedCount,
+      expectedObjectCount: EXPECTED_TOTAL,
+      uploadedFiles: refreshed.uploadedFiles,
+      uploadedFileCount: refreshed.uploadedFiles.length,
       validationCalled,
       validationMessage,
       statusSummary,
       published: 0,
-      note: "All expected objects are staged. Nothing is automatically published.",
+      note: complete
+        ? "All 2,000 approved V2 objects are staged. Nothing was automatically published."
+        : "Approved V2 chunk staged. Continue with the remaining split files; nothing is published.",
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
