@@ -31,19 +31,31 @@ function normalizeInput(payload: unknown): StagingRow[] {
   if (Array.isArray(payload)) return payload as StagingRow[];
   if (payload && typeof payload === "object" && Array.isArray((payload as { objects?: unknown[] }).objects)) {
     return ((payload as { objects: Array<Record<string, unknown>> }).objects || []).map((o) => ({
-      source_type: "manual",
-      source_model: "capital-forge-authored-export",
+      source_type: typeof o.source_type === "string" ? o.source_type : "manual",
+      source_model: typeof o.source_model === "string" ? o.source_model : "capital-forge-import",
       content_type: String(o.content_type || "question"),
       source_record_key: String(o.source_record_key || ""),
       content_hash: typeof o.content_hash === "string" ? o.content_hash : null,
       normalized_text: typeof o.normalized_text === "string" ? o.normalized_text : null,
-      detected_domain: typeof o.domain === "string" ? o.domain : null,
-      detected_topic: typeof o.topic === "string" ? o.topic : null,
-      proposed_difficulty: typeof o.difficulty === "number" ? o.difficulty : null,
-      raw_content: (o.raw_content || {}) as Record<string, unknown>,
+      detected_domain: typeof o.detected_domain === "string"
+        ? o.detected_domain
+        : typeof o.domain === "string"
+          ? o.domain
+          : null,
+      detected_topic: typeof o.detected_topic === "string"
+        ? o.detected_topic
+        : typeof o.topic === "string"
+          ? o.topic
+          : null,
+      proposed_difficulty: typeof o.proposed_difficulty === "number"
+        ? o.proposed_difficulty
+        : typeof o.difficulty === "number"
+          ? o.difficulty
+          : null,
+      raw_content: (o.raw_content || o) as Record<string, unknown>,
     }));
   }
-  throw new Error("Payload must be the 605-row staging array or normalized manifest with an objects array.");
+  throw new Error("Payload must be a staging array or a normalized manifest with an objects array.");
 }
 
 export async function POST(request: Request) {
@@ -65,17 +77,30 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const rows = normalizeInput(body?.payload ?? body);
+    const objectCount = rows.length;
     const batchName = typeof body?.batchName === "string" && body.batchName.trim()
       ? body.batchName.trim()
-      : "CF-FULL-EXPORT-20260905-001";
+      : "CF-CONTENT-IMPORT-MANUAL";
+    const originalFilename = typeof body?.filename === "string" && body.filename.trim()
+      ? body.filename.trim()
+      : "capital_forge_staging_payload.json";
 
-    if (rows.length !== 605) {
-      return NextResponse.json({ ok: false, error: `Expected 605 objects; received ${rows.length}. Import refused.` }, { status: 400 });
+    if (objectCount === 0) {
+      return NextResponse.json({ ok: false, error: "Import payload is empty." }, { status: 400 });
+    }
+    if (objectCount > 5000) {
+      return NextResponse.json({ ok: false, error: `Maximum protected import size is 5,000 objects; received ${objectCount}.` }, { status: 400 });
     }
 
-    const keys = rows.map((r) => r.source_record_key).filter(Boolean);
-    if (keys.length !== 605 || new Set(keys).size !== 605) {
-      return NextResponse.json({ ok: false, error: "The import must contain 605 non-empty unique source_record_key values." }, { status: 400 });
+    const keys = rows.map((r) => String(r.source_record_key || "").trim()).filter(Boolean);
+    if (keys.length !== objectCount || new Set(keys).size !== objectCount) {
+      return NextResponse.json({ ok: false, error: `The import must contain ${objectCount} non-empty unique source_record_key values.` }, { status: 400 });
+    }
+
+    for (const row of rows) {
+      if (!row.content_type || !row.raw_content || typeof row.raw_content !== "object") {
+        return NextResponse.json({ ok: false, error: `Invalid content_type/raw_content on ${row.source_record_key}.` }, { status: 400 });
+      }
     }
 
     const domainTopicPairs = new Map<string, { domain: string; topic: string }>();
@@ -86,6 +111,18 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: `Missing domain/topic on ${row.source_record_key}.` }, { status: 400 });
       }
       domainTopicPairs.set(`${domain}|||${topic}`, { domain, topic });
+    }
+
+    const contentTypeCounts: Record<string, number> = {};
+    const originTypeCounts: Record<string, number> = {};
+    let calculationCount = 0;
+    const sourceModels = new Set<string>();
+    for (const row of rows) {
+      contentTypeCounts[row.content_type] = (contentTypeCounts[row.content_type] || 0) + 1;
+      const origin = String(row.raw_content?.origin_content_type || row.content_type);
+      originTypeCounts[origin] = (originTypeCounts[origin] || 0) + 1;
+      if (row.raw_content?.calculation_required === true) calculationCount += 1;
+      if (row.source_model) sourceModels.add(row.source_model);
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -121,7 +158,7 @@ export async function POST(request: Request) {
       domain_id: domainIdBySlug.get(slugify(domain)),
       slug: slugify(topic),
       name: topic,
-      description: `Imported from Capital Forge Full Content Export: ${topic}.`,
+      description: `Imported Capital Forge topic: ${topic}.`,
       difficulty_min: 1,
       difficulty_max: 10,
       active: true,
@@ -149,15 +186,18 @@ export async function POST(request: Request) {
         .insert({
           batch_name: batchName,
           source_type: "json",
-          source_model: "capital-forge-authored-export",
-          original_filename: "capital_forge_full_content_export.pdf",
+          source_model: sourceModels.size === 1 ? [...sourceModels][0] : "capital-forge-mixed-import",
+          original_filename: originalFilename,
           status: "created",
           metadata: {
-            source: "user-provided Capital Forge Full Content Export",
-            object_count: 605,
-            decision_cases: 105,
-            practice_items: 500,
-            parser_contract: "capital-forge-pdf-import-v1",
+            source: "Capital Forge protected content importer",
+            object_count: objectCount,
+            content_type_counts: contentTypeCounts,
+            origin_content_type_counts: originTypeCounts,
+            calculation_count: calculationCount,
+            domain_count: domainNames.length,
+            topic_count: domainTopicPairs.size,
+            parser_contract: "capital-forge-staging-import-v2",
           },
         })
         .select("id,batch_name,status")
@@ -180,8 +220,8 @@ export async function POST(request: Request) {
       .filter((r) => !existing.has(r.source_record_key))
       .map((r) => ({
         import_batch_id: batch!.id,
-        source_type: "manual",
-        source_model: r.source_model || "capital-forge-authored-export",
+        source_type: r.source_type || "manual",
+        source_model: r.source_model || "capital-forge-import",
         content_type: r.content_type,
         source_record_key: r.source_record_key,
         raw_content: r.raw_content,
@@ -235,15 +275,18 @@ export async function POST(request: Request) {
       ok: true,
       batchName: batch.batch_name,
       batchId: batch.id,
-      sourceObjects: 605,
+      sourceObjects: objectCount,
       existingKeysSkipped: existing.size,
       inserted: newRows.length,
       stagedObjectsInBatch: stagedRows?.length || 0,
       validationCalled,
       validationMessage,
       statusSummary,
+      contentTypeCounts,
+      originTypeCounts,
+      calculationCount,
       published: 0,
-      note: "Staging-only import. Nothing is automatically published; calculation-oriented items still require deterministic verification.",
+      note: "Staging-only import. Nothing is automatically published; structural validation, deterministic calculation verification, qualitative review and publication gates remain in force.",
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
