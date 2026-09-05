@@ -6,6 +6,7 @@ const APP_TABS = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Inte
 
 const DIRECT_ROUTES: Record<string, string> = {
   Home: "/home",
+  Practice: "/practice",
   Dashboard: "/dashboard",
   Feedback: "/feedback",
   "Interview Room": "/interview"
