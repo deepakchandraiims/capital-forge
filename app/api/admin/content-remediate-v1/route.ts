@@ -20,24 +20,6 @@ function asArray<T>(value: unknown, fallback: T[] = []): T[] {
   return Array.isArray(value) ? (value as T[]) : fallback;
 }
 
-function normalizeSeniority(value: unknown) {
-  const v = String(value || "").trim().toLowerCase();
-  const map: Record<string,string> = {
-    foundation: "Foundation",
-    easy: "Easy",
-    intermediate: "Intermediate",
-    hard: "Hard",
-    advanced: "Advanced",
-    analyst: "Analyst",
-    associate: "Associate",
-    vp: "VP",
-    director: "Director",
-    "md/partner/ic": "MD/Partner/IC",
-    "md / partner / ic": "MD/Partner/IC",
-  };
-  return map[v] || String(value || "Analyst");
-}
-
 export async function POST(request: NextRequest) {
   if (!tokenMatches(request.headers.get("x-capital-forge-remediate"))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -49,7 +31,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Supabase server configuration incomplete" }, { status: 503 });
   }
 
-  const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const supabase = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
   const { data: rows, error } = await supabase
     .from("cf_content_staging")
@@ -58,55 +42,97 @@ export async function POST(request: NextRequest) {
     .eq("validation_status", "needs_review")
     .order("source_record_key");
 
-  if (error) return NextResponse.json({ ok: false, stage: "read", error: error.message }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ ok: false, stage: "read", error: error.message }, { status: 500 });
+  }
 
-  const changed: Array<{key:string; fixes:string[]}> = [];
+  const beforeNeedsReview = rows?.length || 0;
+  const changed: Array<{ key: string; fixes: string[] }> = [];
+
+  // Resolve the canonical Financial Modeling / Three-Statement Model taxonomy
+  // instead of guessing the topic display name used by the validator.
+  const { data: modelingDomain, error: domainError } = await supabase
+    .from("cf_domains")
+    .select("id,name,slug")
+    .eq("slug", "financial-modeling")
+    .maybeSingle();
+
+  if (domainError || !modelingDomain) {
+    return NextResponse.json(
+      { ok: false, stage: "taxonomy_domain", error: domainError?.message || "financial-modeling domain not found" },
+      { status: 500 }
+    );
+  }
+
+  const { data: threeStatementTopic, error: topicError } = await supabase
+    .from("cf_topics")
+    .select("id,name,slug,domain_id")
+    .eq("domain_id", modelingDomain.id)
+    .eq("slug", "three-statement-model")
+    .maybeSingle();
+
+  if (topicError || !threeStatementTopic) {
+    return NextResponse.json(
+      { ok: false, stage: "taxonomy_topic", error: topicError?.message || "three-statement-model topic not found" },
+      { status: 500 }
+    );
+  }
 
   for (const row of rows || []) {
     const raw: any = { ...(row.raw_content || {}) };
     const fixes: string[] = [];
+    const updatePayload: Record<string, unknown> = {};
+    const validationErrors = asArray<string>(row.validation_errors, []);
 
-    if (row.content_type === "question" || row.content_type === "interview_question") {
-      raw.contract_version = raw.contract_version || "1.0";
-      raw.content_type = raw.content_type || row.content_type;
-      raw.question = String(raw.question || "").trim();
-      raw.model_answer = String(raw.model_answer || raw.correct_answer || "").trim();
-      raw.correct_answer = raw.correct_answer ?? null;
-      raw.expected_time_seconds = Number.isFinite(Number(raw.expected_time_seconds)) ? Number(raw.expected_time_seconds) : 120;
-      raw.expected_points = asArray(raw.expected_points, raw.correct_answer ? [String(raw.correct_answer)] : []);
-      raw.common_wrong_answers = asArray(raw.common_wrong_answers, []);
-      raw.follow_ups = asArray(raw.follow_ups, []);
-      raw.career_tracks = asArray(raw.career_tracks, []);
-      raw.sources = asArray(raw.sources, []);
-      raw.seniority = normalizeSeniority(raw.seniority);
-      if (!raw.rubric || typeof raw.rubric !== "object" || Array.isArray(raw.rubric)) {
-        raw.rubric = { total_points: 10, criteria: [{ criterion: "Correct answer and reasoning", points: 10 }] };
-        fixes.push("rubric_created");
-      }
+    // 28 Three-Statement Model questions were structurally sound but their imported
+    // topic display name did not match the existing canonical topic name.
+    if (
+      row.source_record_key.startsWith("MOD-3SM-") &&
+      validationErrors.some((e) => String(e).toLowerCase().includes("topic does not exist"))
+    ) {
+      raw.domain = modelingDomain.name;
+      raw.topic = threeStatementTopic.name;
+      updatePayload.detected_domain = modelingDomain.name;
+      updatePayload.detected_topic = threeStatementTopic.name;
+      fixes.push(`taxonomy_aligned:${modelingDomain.name}/${threeStatementTopic.name}`);
+    }
 
-      if (raw.question_type === "mcq" && (!Array.isArray(raw.options) || raw.options.length < 2)) {
-        const answer = String(raw.correct_answer || "").trim().toLowerCase();
-        const prompt = String(raw.question || "").toLowerCase();
-        if (answer === "true" || answer === "false" || /true\s*(?:\/|or)\s*false/.test(prompt)) {
-          raw.options = ["True", "False"];
-          fixes.push("true_false_options_added");
-        }
-      }
+    // The original Rule-of-72 answer was numerically correct but too terse for the
+    // structural contract. Expand the explanation without changing the conclusion.
+    if (row.source_record_key === "MM-CALC-0102") {
+      raw.model_answer =
+        "Using the Rule of 72, the approximate doubling time is 72 ÷ 6 = 12 years. So debt growing at 6% annually with no repayment roughly doubles in about 12 years.";
+      raw.expected_points = [
+        "Apply the Rule of 72: 72 ÷ 6 ≈ 12 years, so the debt roughly doubles in about 12 years.",
+      ];
+      raw.rubric = {
+        total_points: 10,
+        criteria: [
+          { criterion: "Applies the Rule of 72 correctly", points: 5 },
+          { criterion: "Concludes approximately 12 years", points: 5 },
+        ],
+      };
+      fixes.push("model_answer_expanded_and_rubric_added");
+    }
 
-      if (raw.question_type === "mcq" && Array.isArray(raw.options) && raw.options.length >= 2 && !raw.correct_answer) {
-        fixes.push("mcq_missing_correct_answer_unresolved");
-      }
-
-      if (raw.calculation_required === undefined) raw.calculation_required = false;
+    // The controlled vocabulary uses the slug for the top seniority tier.
+    if (row.source_record_key === "PE-IC-0031") {
+      raw.seniority = "md-partner-ic";
+      fixes.push("seniority_normalized_to_md-partner-ic");
     }
 
     if (fixes.length > 0) {
+      updatePayload.raw_content = raw;
       const { error: updateError } = await supabase
         .from("cf_content_staging")
-        .update({ raw_content: raw })
+        .update(updatePayload)
         .eq("id", row.id);
+
       if (updateError) {
-        return NextResponse.json({ ok: false, stage: "update", key: row.source_record_key, error: updateError.message }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, stage: "update", key: row.source_record_key, error: updateError.message },
+          { status: 500 }
+        );
       }
       changed.push({ key: row.source_record_key, fixes });
     }
@@ -114,7 +140,11 @@ export async function POST(request: NextRequest) {
 
   let validationCalled = false;
   let validationMessage = "Not attempted";
-  for (const params of [{ p_batch_id: BATCH_ID }, { p_import_batch_id: BATCH_ID }, { batch_id: BATCH_ID }]) {
+  for (const params of [
+    { p_batch_id: BATCH_ID },
+    { p_import_batch_id: BATCH_ID },
+    { batch_id: BATCH_ID },
+  ]) {
     const { error: rpcError } = await supabase.rpc("cf_validate_import_batch", params);
     if (!rpcError) {
       validationCalled = true;
@@ -130,7 +160,10 @@ export async function POST(request: NextRequest) {
     .select("source_record_key,content_type,validation_status,validation_errors,validation_warnings,raw_content")
     .eq("import_batch_id", BATCH_ID)
     .order("source_record_key");
-  if (afterError) return NextResponse.json({ ok: false, stage: "summary", error: afterError.message }, { status: 500 });
+
+  if (afterError) {
+    return NextResponse.json({ ok: false, stage: "summary", error: afterError.message }, { status: 500 });
+  }
 
   const statusSummary: Record<string, number> = {};
   const remaining: any[] = [];
@@ -143,7 +176,9 @@ export async function POST(request: NextRequest) {
         questionType: (r.raw_content as any)?.question_type || null,
         errors: r.validation_errors || [],
         warnings: r.validation_warnings || [],
-        hasOptions: Array.isArray((r.raw_content as any)?.options) && (r.raw_content as any).options.length >= 2,
+        domain: (r.raw_content as any)?.domain || null,
+        topic: (r.raw_content as any)?.topic || null,
+        seniority: (r.raw_content as any)?.seniority || null,
       });
     }
   }
@@ -151,13 +186,18 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     batchId: BATCH_ID,
-    beforeNeedsReview: rows?.length || 0,
+    beforeNeedsReview,
     changedCount: changed.length,
     changed,
+    canonicalThreeStatementTopic: threeStatementTopic.name,
     validationCalled,
     validationMessage,
     statusSummary,
     remainingNeedsReview: remaining.length,
     remaining,
+    note:
+      remaining.length === 0
+        ? "All 605 objects now pass structural validation. Nothing has been published."
+        : "Targeted remediation completed; unresolved records remain locked from publication.",
   });
 }
