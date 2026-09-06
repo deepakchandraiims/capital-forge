@@ -99,12 +99,23 @@ export async function GET(request: Request) {
 
   if (action === "categories") {
     const universe = cleanTerm(requestUrl.searchParams.get("universe"));
-    let query = client.from("knowledge_objects").select("category,category_slug,universe").eq("status", "published").limit(4000);
-    if (universe) query = query.eq("universe", universe);
-    const { data, error } = await query;
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    const rows: any[] = [];
+    const pageSize = 1000;
+    for (let from = 0; from < 4000; from += pageSize) {
+      let query = client
+        .from("knowledge_objects")
+        .select("source_record_key,category,category_slug,universe")
+        .eq("status", "published")
+        .order("source_record_key", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (universe) query = query.eq("universe", universe);
+      const { data, error } = await query;
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      rows.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
     const map = new Map<string, { name: string; slug: string; universe: string; count: number }>();
-    for (const row of data || []) {
+    for (const row of rows) {
       const key = String(row.category_slug);
       const current = map.get(key) || { name: String(row.category), slug: key, universe: String(row.universe), count: 0 };
       current.count += 1;
