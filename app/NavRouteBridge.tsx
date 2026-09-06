@@ -8,6 +8,7 @@ const DIRECT_ROUTES: Record<string, string> = {
   Home: "/home",
   "Knowledge Vault": "/knowledge-vault",
   Practice: "/practice",
+  Advanced: "/advanced",
   Dashboard: "/dashboard",
   Feedback: "/feedback",
   "Interview Room": "/interview"
@@ -91,8 +92,6 @@ export default function NavRouteBridge() {
       const button = target?.closest("button");
       if (!button) return;
 
-      // Dashboard mode switches have their own routes. Do not let the global
-      // sidebar bridge turn "Knowledge Vault" into /knowledge-vault here.
       if (button.closest(".kv-dashboard-switch, .kv-injected-dashboard-switch")) return;
 
       const route = directRouteFor(button.textContent || "");
@@ -118,7 +117,7 @@ export default function NavRouteBridge() {
 
     const handleKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        const input = document.querySelector(".kv-global-search input, .home-search input, .dash-search input, input[placeholder*='Search']") as HTMLInputElement | null;
+        const input = document.querySelector(".kv-global-search input, .home-search input, .dash-search input, .advx-header-search input, input[placeholder*='Search']") as HTMLInputElement | null;
         if (input) { event.preventDefault(); input.focus(); input.select(); }
       }
     };
