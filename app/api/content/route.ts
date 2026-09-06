@@ -39,8 +39,11 @@ export async function GET(request: Request) {
 
   const requestUrl = new URL(request.url);
   const type = normalizeType(requestUrl.searchParams.get("type"));
-  const limitParam = Number(requestUrl.searchParams.get("limit") || "5000");
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.trunc(limitParam), 1), 5000) : 5000;
+
+  // Legacy clients still send limit=1000. Capital Forge now contains >2,000
+  // canonical questions, so the API intentionally returns the complete catalog
+  // and paginates internally through Supabase/PostgREST's 1,000-row window.
+  const limit = 5000;
   const PAGE_SIZE = 1000;
 
   const [{ data: topics }, { data: domains }] = await Promise.all([
@@ -65,14 +68,18 @@ export async function GET(request: Request) {
     ...(row.topic_id ? (taxonomyByTopic.get(row.topic_id) || {}) : {})
   }));
 
+  const QUESTION_FIELDS = "id,domain_id,topic_id,question_type,question,difficulty,career_tracks,seniority,expected_time_seconds,options,correct_answer,short_answer,model_answer,expected_points,rubric,calculation_required,quality_score,status,source_record_key,origin_content_type,source_ids";
+  const CASE_FIELDS = "id,domain_id,topic_id,title,case_type,industry,difficulty,scenario,facts,financial_data,questions,solution,rubric,source_ids,source_model,quality_score,status,source_record_key,origin_content_type";
+
   async function fetchPublished(table: "cf_concepts" | "cf_questions" | "cf_cases") {
     const rows: any[] = [];
+    const fields = table === "cf_questions" ? QUESTION_FIELDS : table === "cf_cases" ? CASE_FIELDS : "*";
     for (let from = 0; from < limit; from += PAGE_SIZE) {
       const pageLength = Math.min(PAGE_SIZE, limit - from);
       const to = from + pageLength - 1;
       const { data, error } = await supabase
         .from(table)
-        .select("*")
+        .select(fields)
         .eq("status", "published")
         .order("source_record_key", { ascending: true })
         .range(from, to);
