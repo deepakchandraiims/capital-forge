@@ -90,6 +90,11 @@ export default function NavRouteBridge() {
       const target = event.target as HTMLElement | null;
       const button = target?.closest("button");
       if (!button) return;
+
+      // Dashboard mode switches have their own routes. Do not let the global
+      // sidebar bridge turn "Knowledge Vault" into /knowledge-vault here.
+      if (button.closest(".kv-dashboard-switch, .kv-injected-dashboard-switch")) return;
+
       const route = directRouteFor(button.textContent || "");
       if (!route || window.location.pathname === route) return;
       event.preventDefault();
