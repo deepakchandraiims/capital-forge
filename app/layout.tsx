@@ -3,6 +3,8 @@ import "./globals.css";
 import "./prepmate.css";
 import "./advanced.css";
 import "./interview.css";
+import "./knowledge-vault.css";
+import "./knowledge-dashboard.css";
 import NavRouteBridge from "./NavRouteBridge";
 
 export const metadata: Metadata = {
