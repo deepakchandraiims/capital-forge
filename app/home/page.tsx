@@ -21,22 +21,9 @@ type CanonicalCase = {
   domain_name?:string|null;
   topic_name?:string|null;
 };
-type MarketQuote = {
-  price:number|null;
-  change:number|null;
-  percentChange:number|null;
-  currency?:string;
-  timestamp?:string;
-};
-type MarketRow = {
-  id:string;
-  label:string;
-  symbol:string;
-  market:"INDIA"|"USA";
-  kind:"INDEX"|"STOCK";
-  quote?:MarketQuote|null;
-  status:"loading"|"live"|"unavailable";
-};
+type MarketQuote = { price:number|null; change:number|null; percentChange:number|null; currency?:string; timestamp?:string };
+type MarketRow = { id:string; label:string; symbol:string; market:string; kind:string; quote?:MarketQuote|null; status:"loading"|"live"|"unavailable" };
+type SearchResult = { symbol:string; name:string; exchange?:string; type?:string; currency?:string };
 
 const tabs=["Home","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
 const icons:Record<string,string>={Home:"⌂",Practice:"▣",Advanced:"▥",Dashboard:"▦",Feedback:"▱","Interview Room":"▻",API:"⌘"};
@@ -66,10 +53,12 @@ const watchlist:Omit<MarketRow,"quote"|"status">[]=[
   {id:"banknifty",label:"NIFTY BANK",symbol:"BANKNIFTY:NSE",market:"INDIA",kind:"INDEX"},
   {id:"reliance",label:"Reliance",symbol:"RELIANCE:NSE",market:"INDIA",kind:"STOCK"},
   {id:"hdfc",label:"HDFC Bank",symbol:"HDFCBANK:NSE",market:"INDIA",kind:"STOCK"},
-  {id:"icici",label:"ICICI Bank",symbol:"ICICIBANK:NSE",market:"INDIA",kind:"STOCK"},
   {id:"tcs",label:"TCS",symbol:"TCS:NSE",market:"INDIA",kind:"STOCK"},
-  {id:"infy",label:"Infosys",symbol:"INFY:NSE",market:"INDIA",kind:"STOCK"},
-  {id:"aapl",label:"Apple",symbol:"AAPL",market:"USA",kind:"STOCK"},
+  {id:"gold",label:"Gold",symbol:"GOLD",market:"GLOBAL",kind:"COMMODITY"},
+  {id:"brent",label:"Brent Crude",symbol:"BRENT",market:"GLOBAL",kind:"COMMODITY"},
+  {id:"usdinr",label:"USD / INR",symbol:"USDINR",market:"INDIA",kind:"FX"},
+  {id:"indiavix",label:"India VIX",symbol:"INDIAVIX",market:"INDIA",kind:"VOLATILITY"},
+  {id:"us10y",label:"US 10Y",symbol:"US10Y",market:"USA",kind:"YIELD"},
   {id:"nvda",label:"NVIDIA",symbol:"NVDA",market:"USA",kind:"STOCK"}
 ];
 
@@ -81,23 +70,25 @@ function nav(tab:string){
   else if(tab==="Interview Room") window.location.assign("/interview");
   else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
 }
+function openMarket(symbol:string,name?:string){
+  const params=new URLSearchParams({symbol});
+  if(name)params.set("name",name);
+  window.location.assign(`/markets?${params.toString()}`);
+}
 function ensureFive(items:NewsItem[]){
   const out=items.slice(0,5).map((x,i)=>({...x,imageUrl:x.imageUrl||fallbackImages[i]}));
   for(let i=out.length;i<5;i++) out.push({...fallback[i],id:`fill-${i}`});
   return out.slice(0,5);
 }
-function pickCaseText(item:CanonicalCase,keys:(keyof CanonicalCase)[]){
-  for(const key of keys){const value=item[key];if(typeof value==="string"&&value.trim())return value.trim();}
-  return "";
-}
+function pickCaseText(item:CanonicalCase,keys:(keyof CanonicalCase)[]){for(const key of keys){const value=item[key];if(typeof value==="string"&&value.trim())return value.trim();}return "";}
 function caseTitle(item:CanonicalCase){return pickCaseText(item,["title","question","prompt","case_prompt","scenario"])||item.source_record_key||"Canonical Decision Case";}
 function caseSummary(item:CanonicalCase){const text=pickCaseText(item,["prompt","case_prompt","question","scenario","context"]);return text.length>170?`${text.slice(0,167)}…`:text||"Open the canonical case and make your recommendation before revealing the framework.";}
 function difficultyLabel(value?:number|null){const n=Number(value||1);if(n<=3)return"Foundation";if(n<=6)return"Intermediate";if(n<=8)return"Hard";return"Director / IC";}
 function formatPrice(row:MarketRow){
-  const value=row.quote?.price;
-  if(value==null)return "—";
+  const value=row.quote?.price;if(value==null)return "—";
   const currency=row.quote?.currency==="USD"?"$":row.quote?.currency==="INR"?"₹":"";
-  return `${currency}${value.toLocaleString(undefined,{maximumFractionDigits:value>=1000?2:2})}`;
+  if(row.kind==="YIELD")return `${value.toFixed(2)}%`;
+  return `${currency}${value.toLocaleString(undefined,{maximumFractionDigits:2})}`;
 }
 
 export default function HomePage(){
@@ -110,61 +101,41 @@ export default function HomePage(){
   const [marketRows,setMarketRows]=useState<MarketRow[]>(watchlist.map(x=>({...x,status:"loading"})));
   const [marketBusy,setMarketBusy]=useState(false);
   const [marketUpdated,setMarketUpdated]=useState("Waiting for live feed");
+  const [assetQuery,setAssetQuery]=useState("");
+  const [assetResults,setAssetResults]=useState<SearchResult[]>([]);
+  const [assetSearchBusy,setAssetSearchBusy]=useState(false);
 
   useEffect(()=>{
     try{
       const keys=["capital-forge-prepmate-live-v2","capital-forge-practice-workstation-fixed-v3","capital-forge-practice-workstation-v1"];
       for(const key of keys){const raw=localStorage.getItem(key);if(raw){const parsed=JSON.parse(raw);setStore(parsed);break;}}
     }catch{}
-    void refreshNews();
-    void refreshCases();
-    void refreshMarkets();
+    void refreshNews();void refreshCases();void refreshMarkets();
     const id=window.setInterval(()=>void refreshMarkets(),60000);
     return ()=>window.clearInterval(id);
   },[]);
 
-  async function refreshNews(){
-    setBusy(true);
-    try{
-      const res=await fetch("/api/news?limit=5",{cache:"no-store"});
-      const data=await res.json();
-      setNews(ensureFive(Array.isArray(data.news)?data.news:fallback));
-      setLastUpdated(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
-    }catch{setNews(fallback);}finally{setBusy(false);}
-  }
+  useEffect(()=>{
+    const q=assetQuery.trim();
+    if(q.length<2){setAssetResults([]);setAssetSearchBusy(false);return;}
+    setAssetSearchBusy(true);
+    const id=window.setTimeout(async()=>{
+      try{
+        const res=await fetch(`/api/market?action=search&q=${encodeURIComponent(q)}`,{cache:"no-store"});
+        const data=await res.json();
+        setAssetResults(Array.isArray(data.results)?data.results:[]);
+      }catch{setAssetResults([]);}finally{setAssetSearchBusy(false);}
+    },250);
+    return ()=>window.clearTimeout(id);
+  },[assetQuery]);
 
-  async function refreshCases(){
-    setCaseBusy(true);
-    try{
-      const res=await fetch("/api/content?type=cases&limit=1000",{cache:"no-store"});
-      const data=await res.json();
-      if(!res.ok||!data.ok)throw new Error(data.error||"Cases unavailable");
-      const rows=(Array.isArray(data.cases)?data.cases:[]) as CanonicalCase[];
-      const decision=rows.filter((x)=>String(x.source_record_key||"").startsWith("DEC-"));
-      const source=decision.length>=4?decision:rows;
-      const selected=[...source].sort((a,b)=>String(a.source_record_key||"").localeCompare(String(b.source_record_key||""))).slice(0,4);
-      setCaseItems(selected.length?selected:fallbackCases);
-    }catch{setCaseItems(fallbackCases);}finally{setCaseBusy(false);}
-  }
-
+  async function refreshNews(){setBusy(true);try{const res=await fetch("/api/news?limit=5",{cache:"no-store"});const data=await res.json();setNews(ensureFive(Array.isArray(data.news)?data.news:fallback));setLastUpdated(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));}catch{setNews(fallback);}finally{setBusy(false);}}
+  async function refreshCases(){setCaseBusy(true);try{const res=await fetch("/api/content?type=cases&limit=1000",{cache:"no-store"});const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||"Cases unavailable");const rows=(Array.isArray(data.cases)?data.cases:[]) as CanonicalCase[];const decision=rows.filter((x)=>String(x.source_record_key||"").startsWith("DEC-"));const source=decision.length>=4?decision:rows;const selected=[...source].sort((a,b)=>String(a.source_record_key||"").localeCompare(String(b.source_record_key||""))).slice(0,4);setCaseItems(selected.length?selected:fallbackCases);}catch{setCaseItems(fallbackCases);}finally{setCaseBusy(false);}}
   async function refreshMarkets(){
-    setMarketBusy(true);
-    setMarketRows(current=>current.map(x=>({...x,status:x.quote?"live":"loading"})));
+    setMarketBusy(true);setMarketRows(current=>current.map(x=>({...x,status:x.quote?"live":"loading"})));
     try{
-      const results=await Promise.all(watchlist.map(async row=>{
-        try{
-          const res=await fetch(`/api/market?symbol=${encodeURIComponent(row.symbol)}`,{cache:"no-store"});
-          const data=await res.json();
-          if(!res.ok||data.configured===false||!data.quote||typeof data.quote.price!=="number"){
-            return {...row,status:"unavailable" as const,quote:null};
-          }
-          return {...row,status:"live" as const,quote:data.quote as MarketQuote};
-        }catch{
-          return {...row,status:"unavailable" as const,quote:null};
-        }
-      }));
-      setMarketRows(results);
-      setMarketUpdated(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
+      const results=await Promise.all(watchlist.map(async row=>{try{const res=await fetch(`/api/market?symbol=${encodeURIComponent(row.symbol)}`,{cache:"no-store"});const data=await res.json();if(!res.ok||data.configured===false||!data.quote||typeof data.quote.price!=="number")return {...row,status:"unavailable" as const,quote:null};return {...row,status:"live" as const,quote:data.quote as MarketQuote};}catch{return {...row,status:"unavailable" as const,quote:null};}}));
+      setMarketRows(results);setMarketUpdated(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
     }finally{setMarketBusy(false);}
   }
 
@@ -184,49 +155,25 @@ export default function HomePage(){
 
     <aside className="home-sidebar"><nav>{tabs.map(tab=><button key={tab} className={tab==="Home"?"active":""} onClick={()=>nav(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="home-upgrade"><h3>Canonical Content OS</h3><p>700 quality-gated learning objects across finance, investing and interviews.</p><button onClick={()=>window.location.assign("/cases")}>⚡ Open Decision Lab</button></div><div className="home-version">Capital Forge · Full Catalog<br/>Built for your best tomorrow.</div></aside>
 
-    <main className="home-workspace">
-      <div className="home-grid">
-        <section className="home-maincol">
-          <section className="home-hero-card"><div className="home-hero-copy"><p className="home-eyebrow">AI-powered finance learning</p><h1>Welcome back, <span>Deepak!</span> 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="home-kpis"><Kpi label="AI Accuracy" value={`${accuracy}%`} tone="green"/><Kpi label="Questions Solved" value={String(attempts.length)} tone="blue"/><Kpi label="Study Time" value={`${studyHours}h`} tone="red"/></div></div><div className="home-hero-art"><div className="home-float f1">DCF</div><div className="home-float f2">LBO</div><div className="home-cube">AI</div></div></section>
+    <main className="home-workspace"><div className="home-grid"><section className="home-maincol">
+      <section className="home-hero-card"><div className="home-hero-copy"><p className="home-eyebrow">AI-powered finance learning</p><h1>Welcome back, <span>Deepak!</span> 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="home-kpis"><Kpi label="AI Accuracy" value={`${accuracy}%`} tone="green"/><Kpi label="Questions Solved" value={String(attempts.length)} tone="blue"/><Kpi label="Study Time" value={`${studyHours}h`} tone="red"/></div></div><div className="home-hero-art"><div className="home-float f1">DCF</div><div className="home-float f2">LBO</div><div className="home-cube">AI</div></div></section>
+      <section className="home-section news-section"><div className="home-section-head"><div><h2><i className="live-dot"/>Live News & Updates</h2><p>Curated insights from markets, AI, and global finance.</p></div><div className="home-refresh-wrap"><small>Last updated: {lastUpdated}</small><button onClick={refreshNews}>{busy?"Refreshing...":"↻ Refresh"}</button></div></div><div className="home-news-grid">{visible.map((item,i)=><article key={item.id}><div className="home-news-img" style={{backgroundImage:`url(${item.imageUrl||fallbackImages[i]})`}}/><div className="home-news-meta"><span className={item.tone||"blue"}>{item.tag}</span><small>{item.time}</small></div><h3>{item.title}</h3><p>{item.summary}</p><div className="home-news-foot"><small>{item.source||"Marketaux"}</small>{item.url?<a href={item.url} target="_blank" rel="noreferrer">Read →</a>:<span>Read →</span>}</div></article>)}</div></section>
+      <section className="home-section cases-section"><div className="home-section-head"><div><h2>📕 Canonical Decision Cases</h2><p>Cases from the 105-case decision set you uploaded and published.</p></div><div style={{display:"flex",gap:8}}><button onClick={refreshCases}>{caseBusy?"Loading...":"↻ Refresh Cases"}</button><button onClick={()=>window.location.assign("/cases")}>View All 110 →</button></div></div><div className="home-case-grid">{caseItems.map((c,i)=><article key={c.id}><div><span>{c.source_record_key||`Case ${i+1}`}</span><b>{c.domain_name||c.topic_name||"Decision Making"}</b></div><h3>{caseTitle(c)}</h3><p>{caseSummary(c)}</p><small>{difficultyLabel(c.difficulty)} · {c.seniority||"Investment Judgment"}</small><button onClick={()=>window.location.assign(`/cases?case=${encodeURIComponent(c.source_record_key||c.id)}`)}>Solve Now →</button></article>)}</div></section>
+    </section>
 
-          <section className="home-section news-section"><div className="home-section-head"><div><h2><i className="live-dot"/>Live News & Updates</h2><p>Curated insights from markets, AI, and global finance.</p></div><div className="home-refresh-wrap"><small>Last updated: {lastUpdated}</small><button onClick={refreshNews}>{busy?"Refreshing...":"↻ Refresh"}</button></div></div><div className="home-news-grid">{visible.map((item,i)=><article key={item.id}><div className="home-news-img" style={{backgroundImage:`url(${item.imageUrl||fallbackImages[i]})`}}/><div className="home-news-meta"><span className={item.tone||"blue"}>{item.tag}</span><small>{item.time}</small></div><h3>{item.title}</h3><p>{item.summary}</p><div className="home-news-foot"><small>{item.source||"Marketaux"}</small>{item.url?<a href={item.url} target="_blank" rel="noreferrer">Read →</a>:<span>Read →</span>}</div></article>)}</div></section>
-
-          <section className="home-section cases-section"><div className="home-section-head"><div><h2>📕 Canonical Decision Cases</h2><p>Cases from the 105-case decision set you uploaded and published.</p></div><div style={{display:"flex",gap:8}}><button onClick={refreshCases}>{caseBusy?"Loading...":"↻ Refresh Cases"}</button><button onClick={()=>window.location.assign("/cases")}>View All 110 →</button></div></div><div className="home-case-grid">{caseItems.map((c,i)=><article key={c.id}><div><span>{c.source_record_key||`Case ${i+1}`}</span><b>{c.domain_name||c.topic_name||"Decision Making"}</b></div><h3>{caseTitle(c)}</h3><p>{caseSummary(c)}</p><small>{difficultyLabel(c.difficulty)} · {c.seniority||"Investment Judgment"}</small><button onClick={()=>window.location.assign(`/cases?case=${encodeURIComponent(c.source_record_key||c.id)}`)}>Solve Now →</button></article>)}</div></section>
-        </section>
-
-        <aside className="home-rail">
-          <section className="home-market-card">
-            <div className="home-market-head">
-              <div>
-                <p className="home-market-kicker"><i/> MARKET WATCH</p>
-                <h3>Top Markets</h3>
-                <small>India first · 2 US leaders</small>
-              </div>
-              <button onClick={refreshMarkets} disabled={marketBusy}>{marketBusy?"…":"↻"}</button>
-            </div>
-            <div className="home-market-clock"><LiveDateTime compact/></div>
-            <div className="home-market-columns"><span>Asset</span><span>Price</span><span>Change</span></div>
-            <div className="home-market-list">
-              {marketRows.map((row,index)=>{
-                const pct=row.quote?.percentChange;
-                const changeClass=pct==null?"flat":pct>=0?"up":"down";
-                return <div className="home-market-row" key={row.id}>
-                  <div className="home-market-rank">{String(index+1).padStart(2,"0")}</div>
-                  <div className="home-market-name"><b>{row.label}</b><small>{row.market} · {row.kind}</small></div>
-                  <div className="home-market-price">{row.status==="loading"?"…":formatPrice(row)}</div>
-                  <div className={`home-market-change ${changeClass}`}>{row.status==="live"&&pct!=null?`${pct>=0?"+":""}${pct.toFixed(2)}%`:"—"}</div>
-                </div>
-              })}
-            </div>
-            <div className="home-market-foot">
-              <span><i className={marketRows.some(x=>x.status==="live")?"live":"off"}/>{marketRows.some(x=>x.status==="live")?"Live market feed":"Market feed unavailable"}</span>
-              <small>Updated {marketUpdated}</small>
-            </div>
-          </section>
-        </aside>
+    <aside className="home-rail"><section className="home-market-card">
+      <div className="home-market-head"><div><p className="home-market-kicker"><i/> MARKET WATCH</p><h3>12-Asset Market Pulse</h3><small>Equities · macro · commodities · FX</small></div><button onClick={refreshMarkets} disabled={marketBusy}>{marketBusy?"…":"↻"}</button></div>
+      <div className="home-market-clock"><LiveDateTime compact/></div>
+      <div className="home-asset-search-wrap">
+        <div className="home-asset-search"><span>⌕</span><input value={assetQuery} onChange={e=>setAssetQuery(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&assetResults[0])openMarket(assetResults[0].symbol,assetResults[0].name)}} placeholder="Search any global asset..."/>{assetSearchBusy&&<i>…</i>}</div>
+        {assetQuery.trim().length>=2&&<div className="home-asset-results">{assetResults.length?assetResults.map(result=><button key={`${result.symbol}-${result.exchange}`} onClick={()=>openMarket(result.symbol,result.name)}><div><b>{result.name}</b><small>{result.symbol} · {result.exchange||"Global"}</small></div><span>{result.type||"Asset"} ›</span></button>):!assetSearchBusy?<p>No matching assets found.</p>:null}</div>}
       </div>
-    </main>
-  </div>
+      <div className="home-market-columns"><span>Asset</span><span>Price</span><span>Change</span></div>
+      <div className="home-market-list">{marketRows.map((row,index)=>{const pct=row.quote?.percentChange;const changeClass=pct==null?"flat":pct>=0?"up":"down";return <button className="home-market-row" key={row.id} onClick={()=>openMarket(row.symbol,row.label)} title={`Open ${row.label} chart and history`}><div className="home-market-rank">{String(index+1).padStart(2,"0")}</div><div className="home-market-name"><b>{row.label}</b><small>{row.market} · {row.kind}</small></div><div className="home-market-price">{row.status==="loading"?"…":formatPrice(row)}</div><div className={`home-market-change ${changeClass}`}>{row.status==="live"&&pct!=null?`${pct>=0?"+":""}${pct.toFixed(2)}%`:"—"}</div></button>})}</div>
+      <div className="home-market-foot"><span><i className={marketRows.some(x=>x.status==="live")?"live":"off"}/>{marketRows.some(x=>x.status==="live")?"Live market feed":"Market feed unavailable"}</span><small>Updated {marketUpdated}</small></div>
+    </section></aside>
+    </div></main>
+  </div>;
 }
 
 function Kpi({label,value,tone}:{label:string;value:string;tone:string}){return <div className={`home-kpi ${tone}`}><small>{label}</small><b>{value}</b></div>}
