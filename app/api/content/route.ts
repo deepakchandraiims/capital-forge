@@ -39,8 +39,9 @@ export async function GET(request: Request) {
 
   const requestUrl = new URL(request.url);
   const type = normalizeType(requestUrl.searchParams.get("type"));
-  const limitParam = Number(requestUrl.searchParams.get("limit") || "1000");
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.trunc(limitParam), 1), 1000) : 1000;
+  const limitParam = Number(requestUrl.searchParams.get("limit") || "5000");
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.trunc(limitParam), 1), 5000) : 5000;
+  const PAGE_SIZE = 1000;
 
   const [{ data: topics }, { data: domains }] = await Promise.all([
     supabase.from("cf_topics").select("id,name,slug,domain_id"),
@@ -64,24 +65,43 @@ export async function GET(request: Request) {
     ...(row.topic_id ? (taxonomyByTopic.get(row.topic_id) || {}) : {})
   }));
 
+  async function fetchPublished(table: "cf_concepts" | "cf_questions" | "cf_cases") {
+    const rows: any[] = [];
+    for (let from = 0; from < limit; from += PAGE_SIZE) {
+      const pageLength = Math.min(PAGE_SIZE, limit - from);
+      const to = from + pageLength - 1;
+      const { data, error } = await supabase
+        .from(table)
+        .select("*")
+        .eq("status", "published")
+        .order("source_record_key", { ascending: true })
+        .range(from, to);
+      if (error) return { rows, error };
+      const page = data || [];
+      rows.push(...page);
+      if (page.length < pageLength) break;
+    }
+    return { rows, error: null };
+  }
+
   const result: Record<string, unknown> = {
     ok: true,
     source: "supabase-canonical",
     catalog: "Capital Forge Canonical Content OS",
-    catalogs: ["CF-DCF-PILOT-001", "CF-FULL-EXPORT-20260905-001"],
+    catalogs: ["CF-DCF-PILOT-001", "CF-FULL-EXPORT-20260905-001", "CF-V2-2000-20260905-001"],
     generatedAt: new Date().toISOString()
   };
 
   if (type === "all" || type === "concepts") {
-    const { data, error } = await supabase.from("cf_concepts").select("*").eq("status", "published").order("source_record_key", { ascending: true }).limit(limit);
+    const { rows, error } = await fetchPublished("cf_concepts");
     if (error) return NextResponse.json({ ok: false, stage: "concepts", error: error.message }, { status: 500 });
-    result.concepts = enrich(data || []);
+    result.concepts = enrich(rows);
   }
 
   if (type === "all" || type === "practice" || type === "interview") {
-    const { data, error } = await supabase.from("cf_questions").select("*").eq("status", "published").order("source_record_key", { ascending: true }).limit(limit);
+    const { rows, error } = await fetchPublished("cf_questions");
     if (error) return NextResponse.json({ ok: false, stage: "questions", error: error.message }, { status: 500 });
-    const allQuestions = enrich(data || []);
+    const allQuestions = enrich(rows);
     const interview = allQuestions.filter((row: any) => row.origin_content_type === "interview_question");
     const practice = allQuestions.filter((row: any) => row.origin_content_type !== "interview_question");
     if (type === "all" || type === "practice") result.practice = practice;
@@ -89,9 +109,9 @@ export async function GET(request: Request) {
   }
 
   if (type === "all" || type === "cases") {
-    const { data, error } = await supabase.from("cf_cases").select("*").eq("status", "published").order("source_record_key", { ascending: true }).limit(limit);
+    const { rows, error } = await fetchPublished("cf_cases");
     if (error) return NextResponse.json({ ok: false, stage: "cases", error: error.message }, { status: 500 });
-    result.cases = enrich(data || []);
+    result.cases = enrich(rows);
   }
 
   const counts: Record<string, number> = {};
