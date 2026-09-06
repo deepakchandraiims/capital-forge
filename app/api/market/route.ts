@@ -34,6 +34,19 @@ const demoQuote: Quote = {
   timestamp: new Date().toISOString()
 };
 
+const yahooAliases: Record<string,string> = {
+  "NIFTY:NSE": "^NSEI",
+  "NIFTY50:NSE": "^NSEI",
+  "SENSEX:BSE": "^BSESN",
+  "BANKNIFTY:NSE": "^NSEBANK",
+  "NIFTYBANK:NSE": "^NSEBANK",
+  "RELIANCE:NSE": "RELIANCE.NS",
+  "HDFCBANK:NSE": "HDFCBANK.NS",
+  "ICICIBANK:NSE": "ICICIBANK.NS",
+  "TCS:NSE": "TCS.NS",
+  "INFY:NSE": "INFY.NS"
+};
+
 function toNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -104,7 +117,7 @@ async function fetchAlphaVantage(symbol: string, apiKey: string): Promise<Quote>
   return {
     symbol: quote["01. symbol"] || symbol.toUpperCase(),
     name: "Alpha Vantage Quote",
-    currency: "USD",
+    currency: symbol.includes(":NSE") || symbol.includes(":BSE") ? "INR" : "USD",
     price: toNumber(quote["05. price"]),
     change: toNumber(quote["09. change"]),
     percentChange: toNumber((quote["10. change percent"] || "").replace("%", "")),
@@ -114,6 +127,56 @@ async function fetchAlphaVantage(symbol: string, apiKey: string): Promise<Quote>
     previousClose: toNumber(quote["08. previous close"]),
     volume: toNumber(quote["06. volume"]),
     timestamp: quote["07. latest trading day"] || new Date().toISOString()
+  };
+}
+
+async function fetchYahooFinance(symbol: string): Promise<Quote> {
+  const yahooSymbol = yahooAliases[symbol] || symbol;
+  const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`);
+  url.searchParams.set("interval", "1m");
+  url.searchParams.set("range", "1d");
+
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      "User-Agent": "Mozilla/5.0 CapitalForge/1.0",
+      "Accept": "application/json"
+    }
+  });
+  if (!response.ok) throw new Error(`Yahoo Finance ${response.status}`);
+  const data = await response.json() as {
+    chart?: {
+      error?: { description?: string } | null;
+      result?: Array<{
+        meta?: Record<string, unknown>;
+        indicators?: { quote?: Array<Record<string, unknown[]>> };
+      }>;
+    };
+  };
+  if (data.chart?.error) throw new Error(data.chart.error.description || "Yahoo Finance error");
+  const result = data.chart?.result?.[0];
+  const meta = result?.meta || {};
+  const price = toNumber(meta.regularMarketPrice);
+  if (price == null) throw new Error("Yahoo Finance returned no price");
+
+  const previousClose = toNumber(meta.chartPreviousClose ?? meta.previousClose);
+  const change = previousClose == null ? null : price - previousClose;
+  const percentChange = previousClose && change != null ? (change / previousClose) * 100 : null;
+
+  return {
+    symbol,
+    name: typeof meta.shortName === "string" ? meta.shortName : typeof meta.longName === "string" ? meta.longName : undefined,
+    exchange: typeof meta.fullExchangeName === "string" ? meta.fullExchangeName : typeof meta.exchangeName === "string" ? meta.exchangeName : undefined,
+    currency: typeof meta.currency === "string" ? meta.currency : undefined,
+    price,
+    change,
+    percentChange,
+    open: toNumber(meta.regularMarketOpen),
+    high: toNumber(meta.regularMarketDayHigh),
+    low: toNumber(meta.regularMarketDayLow),
+    previousClose,
+    volume: toNumber(meta.regularMarketVolume),
+    timestamp: typeof meta.regularMarketTime === "number" ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString()
   };
 }
 
@@ -146,16 +209,32 @@ export async function GET(request: Request) {
         generatedAt: new Date().toISOString()
       });
     } catch (backupError) {
-      const quote = { ...demoQuote, symbol };
-      return NextResponse.json({
-        configured: false,
-        provider,
-        source: "fallback",
-        warning: backupError instanceof Error ? backupError.message : "Market providers unavailable. Returning demo challenges.",
-        quote,
-        events: buildEvents(quote, "Capital Forge Demo", false),
-        generatedAt: new Date().toISOString()
-      });
+      try {
+        const quote = await fetchYahooFinance(symbol);
+        return NextResponse.json({
+          configured: true,
+          provider: "yahoo-finance",
+          source: "public-fallback",
+          backup: true,
+          symbol,
+          primaryWarning: primaryError instanceof Error ? primaryError.message : "Primary market provider failed",
+          backupWarning: backupError instanceof Error ? backupError.message : "Backup market provider failed",
+          quote,
+          events: buildEvents(quote, "Yahoo Finance", true),
+          generatedAt: new Date().toISOString()
+        });
+      } catch (publicError) {
+        const quote = { ...demoQuote, symbol };
+        return NextResponse.json({
+          configured: false,
+          provider,
+          source: "fallback",
+          warning: publicError instanceof Error ? publicError.message : "Market providers unavailable. Returning demo challenges.",
+          quote,
+          events: buildEvents(quote, "Capital Forge Demo", false),
+          generatedAt: new Date().toISOString()
+        });
+      }
     }
   }
 }
