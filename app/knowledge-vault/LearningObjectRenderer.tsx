@@ -31,6 +31,12 @@ export default function LearningObjectRenderer({ object, sources = [], compact =
     ];
   }, [answer, content, isFormula, isHistorical, isTrade, object]);
 
+  const openAI = () => {
+    const context = [object.title, object.category, object.topic, prompt].filter(Boolean).join(" | ");
+    const aiPrompt = `Knowledge Vault context: ${context}. Explain this using the canonical object as the source of truth. Do not overwrite or invent the validated answer. Offer: explain simply, explain technically, interview follow-up, another example, challenge the answer, connect to a real deal, or quiz me.`;
+    window.location.assign(`/?open=Advanced&kvObject=${encodeURIComponent(object.id || object.source_record_key || "")}&prompt=${encodeURIComponent(aiPrompt)}`);
+  };
+
   return <article className={`kv-object-renderer ${compact ? "compact" : ""}`}>
     <div className="kv-object-meta"><span>{object.universe || "Knowledge Vault"}</span><span>{object.category || "Finance"}</span><span>Difficulty {object.difficulty || 5}/10</span>{object.source_kind === "source_grounded" ? <button onClick={() => setSourceOpen(true)}>✓ Verified Source</button> : <span className="authored">Capital Forge Authored</span>}</div>
     {isHistorical && <div className="kv-object-date"><b>{object.event_date || content.date || "Historical context"}</b><span>{text(content.geography)}</span><span>{text(content.event_type)}</span></div>}
@@ -39,7 +45,7 @@ export default function LearningObjectRenderer({ object, sources = [], compact =
     <div className="kv-object-prompt"><small>{object.question_type || object.content_type || "Learning Object"}</small><p>{prompt}</p></div>
     <div className="kv-object-sections">{sections.filter(([, value]) => value).map(([label, value]) => <section key={label}><h3>{label}</h3><p>{value}</p></section>)}</div>
     {list(content.related_formulas).length > 0 && <section className="kv-related-inline"><h3>Related formulas</h3><div>{list(content.related_formulas).map((x: any) => <span key={String(x)}>{String(x)}</span>)}</div></section>}
-    <div className="kv-object-actions"><button onClick={() => window.location.assign(`/practice?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Practice This →</button><button onClick={() => window.location.assign(`/?open=Advanced&topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Go Deeper →</button><button onClick={() => window.location.assign(`/interview?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Interview Me On This →</button></div>
+    <div className="kv-object-actions"><button onClick={openAI}>✦ Ask AI</button><button onClick={() => window.location.assign(`/practice?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Practice This →</button><button onClick={() => window.location.assign(`/?open=Advanced&topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Go Deeper →</button><button onClick={() => window.location.assign(`/interview?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Interview Me On This →</button></div>
     {sourceOpen && <div className="kv-source-overlay" onClick={() => setSourceOpen(false)}><aside onClick={(e) => e.stopPropagation()}><div className="kv-source-head"><div><small>Knowledge Vault</small><h2>Verified Source</h2></div><button onClick={() => setSourceOpen(false)}>×</button></div>{sources.length ? sources.map((s, i) => <section key={s.id || i}><b>{s.publisher || "Primary Source"}</b><h3>{s.title || "Source document"}</h3><dl><div><dt>Document Type</dt><dd>{s.source_type || "Primary source"}</dd></div><div><dt>Date</dt><dd>{s.document_date || "—"}</dd></div><div><dt>Authority Tier</dt><dd>{s.authority_tier ? `Tier ${s.authority_tier}` : "—"}</dd></div><div><dt>Relevant Fact / Section</dt><dd>{s.notes || "Canonical source linked to this object."}</dd></div></dl>{s.url && <a href={s.url} target="_blank" rel="noreferrer">View Source ↗</a>}</section>) : <p>No external source is attached to this authored object.</p>}</aside></div>}
   </article>;
 }
