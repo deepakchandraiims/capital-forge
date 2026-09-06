@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import LiveDateTime from "../LiveDateTime";
 
 type Tone = "blue" | "red" | "green" | "purple" | "black";
 type NewsItem = { id:string; tag:string; tone?:Tone; title:string; summary:string; time:string; imageUrl?:string; source?:string; url?:string };
-type Store = { xp?:number; attempts?:Array<{correct?:boolean}>; streak?:number };
+type Store = { xp?:number; attempts?:Array<{correct?:boolean}>; streak?:number; studySeconds?:number };
 type CanonicalCase = {
   id:string;
   source_record_key?:string|null;
@@ -19,6 +20,22 @@ type CanonicalCase = {
   career_tracks?:string[]|null;
   domain_name?:string|null;
   topic_name?:string|null;
+};
+type MarketQuote = {
+  price:number|null;
+  change:number|null;
+  percentChange:number|null;
+  currency?:string;
+  timestamp?:string;
+};
+type MarketRow = {
+  id:string;
+  label:string;
+  symbol:string;
+  market:"INDIA"|"USA";
+  kind:"INDEX"|"STOCK";
+  quote?:MarketQuote|null;
+  status:"loading"|"live"|"unavailable";
 };
 
 const tabs=["Home","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
@@ -43,6 +60,18 @@ const fallbackCases:CanonicalCase[]=[
   {id:"fallback-3",source_record_key:"CASE-MA",domain_name:"Mergers & Acquisitions",title:"Buy-Side M&A Case",prompt:"Assess acquisition logic, synergies, financing and accretion/dilution.",difficulty:8,seniority:"Associate"},
   {id:"fallback-4",source_record_key:"CASE-PE",domain_name:"Private Equity",title:"Investment Committee Decision",prompt:"Make a go/no-go recommendation using returns, downside and execution risk.",difficulty:8,seniority:"Associate"}
 ];
+const watchlist:Omit<MarketRow,"quote"|"status">[]=[
+  {id:"nifty50",label:"NIFTY 50",symbol:"NIFTY:NSE",market:"INDIA",kind:"INDEX"},
+  {id:"sensex",label:"SENSEX",symbol:"SENSEX:BSE",market:"INDIA",kind:"INDEX"},
+  {id:"banknifty",label:"NIFTY BANK",symbol:"BANKNIFTY:NSE",market:"INDIA",kind:"INDEX"},
+  {id:"reliance",label:"Reliance",symbol:"RELIANCE:NSE",market:"INDIA",kind:"STOCK"},
+  {id:"hdfc",label:"HDFC Bank",symbol:"HDFCBANK:NSE",market:"INDIA",kind:"STOCK"},
+  {id:"icici",label:"ICICI Bank",symbol:"ICICIBANK:NSE",market:"INDIA",kind:"STOCK"},
+  {id:"tcs",label:"TCS",symbol:"TCS:NSE",market:"INDIA",kind:"STOCK"},
+  {id:"infy",label:"Infosys",symbol:"INFY:NSE",market:"INDIA",kind:"STOCK"},
+  {id:"aapl",label:"Apple",symbol:"AAPL",market:"USA",kind:"STOCK"},
+  {id:"nvda",label:"NVIDIA",symbol:"NVDA",market:"USA",kind:"STOCK"}
+];
 
 function nav(tab:string){
   if(tab==="Home") window.location.assign("/home");
@@ -64,14 +93,23 @@ function pickCaseText(item:CanonicalCase,keys:(keyof CanonicalCase)[]){
 function caseTitle(item:CanonicalCase){return pickCaseText(item,["title","question","prompt","case_prompt","scenario"])||item.source_record_key||"Canonical Decision Case";}
 function caseSummary(item:CanonicalCase){const text=pickCaseText(item,["prompt","case_prompt","question","scenario","context"]);return text.length>170?`${text.slice(0,167)}…`:text||"Open the canonical case and make your recommendation before revealing the framework.";}
 function difficultyLabel(value?:number|null){const n=Number(value||1);if(n<=3)return"Foundation";if(n<=6)return"Intermediate";if(n<=8)return"Hard";return"Director / IC";}
+function formatPrice(row:MarketRow){
+  const value=row.quote?.price;
+  if(value==null)return "—";
+  const currency=row.quote?.currency==="USD"?"$":row.quote?.currency==="INR"?"₹":"";
+  return `${currency}${value.toLocaleString(undefined,{maximumFractionDigits:value>=1000?2:2})}`;
+}
 
 export default function HomePage(){
   const [news,setNews]=useState<NewsItem[]>(fallback);
   const [busy,setBusy]=useState(false);
   const [caseBusy,setCaseBusy]=useState(false);
   const [caseItems,setCaseItems]=useState<CanonicalCase[]>(fallbackCases);
-  const [store,setStore]=useState<Store>({xp:0,attempts:[],streak:0});
+  const [store,setStore]=useState<Store>({xp:0,attempts:[],streak:0,studySeconds:0});
   const [lastUpdated,setLastUpdated]=useState("Just now");
+  const [marketRows,setMarketRows]=useState<MarketRow[]>(watchlist.map(x=>({...x,status:"loading"})));
+  const [marketBusy,setMarketBusy]=useState(false);
+  const [marketUpdated,setMarketUpdated]=useState("Waiting for live feed");
 
   useEffect(()=>{
     try{
@@ -80,6 +118,9 @@ export default function HomePage(){
     }catch{}
     void refreshNews();
     void refreshCases();
+    void refreshMarkets();
+    const id=window.setInterval(()=>void refreshMarkets(),60000);
+    return ()=>window.clearInterval(id);
   },[]);
 
   async function refreshNews(){
@@ -106,12 +147,32 @@ export default function HomePage(){
     }catch{setCaseItems(fallbackCases);}finally{setCaseBusy(false);}
   }
 
+  async function refreshMarkets(){
+    setMarketBusy(true);
+    setMarketRows(current=>current.map(x=>({...x,status:x.quote?"live":"loading"})));
+    try{
+      const results=await Promise.all(watchlist.map(async row=>{
+        try{
+          const res=await fetch(`/api/market?symbol=${encodeURIComponent(row.symbol)}`,{cache:"no-store"});
+          const data=await res.json();
+          if(!res.ok||data.configured===false||!data.quote||typeof data.quote.price!=="number"){
+            return {...row,status:"unavailable" as const,quote:null};
+          }
+          return {...row,status:"live" as const,quote:data.quote as MarketQuote};
+        }catch{
+          return {...row,status:"unavailable" as const,quote:null};
+        }
+      }));
+      setMarketRows(results);
+      setMarketUpdated(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
+    }finally{setMarketBusy(false);}
+  }
+
   const visible=useMemo(()=>ensureFive(news),[news]);
   const attempts=store.attempts||[];
   const accuracy=attempts.length?Math.round(attempts.filter(x=>x.correct).length/attempts.length*100):0;
-  const xp=store.xp||0;
-  const progress=Math.min(100,Math.max(0,Math.round(xp/20)));
-  const streak=store.streak||7;
+  const studySeconds=Number(store.studySeconds||0);
+  const studyHours=studySeconds>0?(studySeconds/3600).toFixed(studySeconds<3600?1:0):"0";
 
   return <div className="home-app">
     <header className="home-header">
@@ -126,7 +187,7 @@ export default function HomePage(){
     <main className="home-workspace">
       <div className="home-grid">
         <section className="home-maincol">
-          <section className="home-hero-card"><div className="home-hero-copy"><p className="home-eyebrow">AI-powered finance learning</p><h1>Welcome back, <span>Deepak!</span> 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="home-kpis"><Kpi label="AI Accuracy" value={`${accuracy}%`} tone="green"/><Kpi label="Questions Solved" value={String(attempts.length)} tone="blue"/><Kpi label="Time Saved" value={`${Math.max(12,Math.round(xp/30))}h`} tone="red"/></div></div><div className="home-hero-art"><div className="home-float f1">DCF</div><div className="home-float f2">LBO</div><div className="home-cube">AI</div></div></section>
+          <section className="home-hero-card"><div className="home-hero-copy"><p className="home-eyebrow">AI-powered finance learning</p><h1>Welcome back, <span>Deepak!</span> 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="home-kpis"><Kpi label="AI Accuracy" value={`${accuracy}%`} tone="green"/><Kpi label="Questions Solved" value={String(attempts.length)} tone="blue"/><Kpi label="Study Time" value={`${studyHours}h`} tone="red"/></div></div><div className="home-hero-art"><div className="home-float f1">DCF</div><div className="home-float f2">LBO</div><div className="home-cube">AI</div></div></section>
 
           <section className="home-section news-section"><div className="home-section-head"><div><h2><i className="live-dot"/>Live News & Updates</h2><p>Curated insights from markets, AI, and global finance.</p></div><div className="home-refresh-wrap"><small>Last updated: {lastUpdated}</small><button onClick={refreshNews}>{busy?"Refreshing...":"↻ Refresh"}</button></div></div><div className="home-news-grid">{visible.map((item,i)=><article key={item.id}><div className="home-news-img" style={{backgroundImage:`url(${item.imageUrl||fallbackImages[i]})`}}/><div className="home-news-meta"><span className={item.tone||"blue"}>{item.tag}</span><small>{item.time}</small></div><h3>{item.title}</h3><p>{item.summary}</p><div className="home-news-foot"><small>{item.source||"Marketaux"}</small>{item.url?<a href={item.url} target="_blank" rel="noreferrer">Read →</a>:<span>Read →</span>}</div></article>)}</div></section>
 
@@ -134,11 +195,34 @@ export default function HomePage(){
         </section>
 
         <aside className="home-rail">
-          <section className="home-rail-card progress-card"><div className="home-rail-head"><h3>Your Progress</h3><button onClick={()=>nav("Dashboard")}>View Dashboard →</button></div><div className="home-progress-body"><div className="home-donut" style={{background:`conic-gradient(#0875fa 0 ${Math.max(18,progress)}%,#e9eef5 ${Math.max(18,progress)}% 100%)`}}><div><b>{Math.max(18,progress)}%</b><small>Overall</small></div></div><div className="home-progress-list"><Progress label="Practice" value={Math.max(20,accuracy)} tone="green"/><Progress label="Advanced" value={64} tone="blue"/><Progress label="Interview" value={Math.max(18,attempts.length*5)} tone="purple"/></div></div></section>
-          <section className="home-rail-card streak-card"><div><h3>🔥 7 Day Streak</h3><p>Keep it up!</p></div><b>{streak}<small>Days</small></b><div className="home-days">{["M","T","W","T","F","S","S"].map((d,i)=><span key={i} className={i<5?"done":""}>{i<4?"✓":d}</span>)}</div></section>
-          <section className="home-rail-card insight-card"><h3>AI Insights <em>New</em></h3><p>You perform best in Valuation and Modeling. Focus on Market Analysis to balance your skill set and improve interview readiness.</p><div><button onClick={()=>nav("Dashboard")}>View Insights →</button><span>AI</span></div></section>
-          <section className="home-rail-card"><h3>Recommended For You</h3><div className="home-reco"><button onClick={()=>nav("Advanced")}><span>🎯</span><b>Complete 5 more Advanced questions<small>+120 XP</small></b><i>›</i></button><button onClick={()=>window.location.assign("/cases")}><span>🧠</span><b>Try a Hard decision case<small>+150 XP</small></b><i>›</i></button><button onClick={()=>nav("Interview Room")}><span>👤</span><b>Run a mock interview<small>+200 XP</small></b><i>›</i></button></div></section>
-          <section className="home-rail-card"><h3>Quick Actions</h3><div className="home-quick"><button onClick={()=>nav("Practice")}><span>▶</span><small>Start Practice</small></button><button onClick={()=>window.location.assign("/cases")}><span>▥</span><small>Decision Cases</small></button><button onClick={()=>nav("Interview Room")}><span>▣</span><small>Interview Room</small></button><button onClick={()=>nav("Feedback")}><span>▱</span><small>Feedback</small></button></div></section>
+          <section className="home-market-card">
+            <div className="home-market-head">
+              <div>
+                <p className="home-market-kicker"><i/> MARKET WATCH</p>
+                <h3>Top Markets</h3>
+                <small>India first · 2 US leaders</small>
+              </div>
+              <button onClick={refreshMarkets} disabled={marketBusy}>{marketBusy?"…":"↻"}</button>
+            </div>
+            <div className="home-market-clock"><LiveDateTime compact/></div>
+            <div className="home-market-columns"><span>Asset</span><span>Price</span><span>Change</span></div>
+            <div className="home-market-list">
+              {marketRows.map((row,index)=>{
+                const pct=row.quote?.percentChange;
+                const changeClass=pct==null?"flat":pct>=0?"up":"down";
+                return <div className="home-market-row" key={row.id}>
+                  <div className="home-market-rank">{String(index+1).padStart(2,"0")}</div>
+                  <div className="home-market-name"><b>{row.label}</b><small>{row.market} · {row.kind}</small></div>
+                  <div className="home-market-price">{row.status==="loading"?"…":formatPrice(row)}</div>
+                  <div className={`home-market-change ${changeClass}`}>{row.status==="live"&&pct!=null?`${pct>=0?"+":""}${pct.toFixed(2)}%`:"—"}</div>
+                </div>
+              })}
+            </div>
+            <div className="home-market-foot">
+              <span><i className={marketRows.some(x=>x.status==="live")?"live":"off"}/>{marketRows.some(x=>x.status==="live")?"Live market feed":"Market feed unavailable"}</span>
+              <small>Updated {marketUpdated}</small>
+            </div>
+          </section>
         </aside>
       </div>
     </main>
@@ -146,4 +230,3 @@ export default function HomePage(){
 }
 
 function Kpi({label,value,tone}:{label:string;value:string;tone:string}){return <div className={`home-kpi ${tone}`}><small>{label}</small><b>{value}</b></div>}
-function Progress({label,value,tone}:{label:string;value:number;tone:string}){return <div><span>{label}</span><i><b className={tone} style={{width:`${Math.min(100,value)}%`}}/></i><small>{Math.min(100,value)}%</small></div>}
