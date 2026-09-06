@@ -11,6 +11,8 @@ const UNIVERSES = [
   { name: "Finance Facts", slug: "finance-facts", categories: 2 }
 ] as const;
 
+const SESSION_FIELDS = "id,source_record_key,title,universe,category,category_slug,topic,subtopic,difficulty,content_type,question_type,prompt,answer,explanation,intuition,common_mistake,why_it_matters,pattern_to_remember,estimated_time_seconds,source_kind,quality_score,event_date,unique_or_variant,variant_of,variant_family_id";
+
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -65,7 +67,7 @@ export async function GET(request: Request) {
     let goal: any = null;
     if (admin && clientKey) {
       const [{ data: p }, { data: s }, { data: g }] = await Promise.all([
-        admin.from("knowledge_progress").select("object_id,status,attempt_count,correct_count,incorrect_count,mastery_score,bookmark,review_later,last_seen_at,next_review_at").eq("client_key", clientKey),
+        admin.from("knowledge_progress").select("object_id,status,attempt_count,correct_count,incorrect_count,mastery_score,bookmark,review_later,last_result,last_seen_at,next_review_at,response_saved,user_response,solved_at").eq("client_key", clientKey),
         admin.from("knowledge_sessions").select("id,mode,status,object_ids,current_index,last_activity_at").eq("client_key", clientKey).order("last_activity_at", { ascending: false }).limit(10),
         admin.from("knowledge_goals").select("id,goal_type,target,period,active").eq("client_key", clientKey).eq("active", true).maybeSingle()
       ]);
@@ -80,6 +82,7 @@ export async function GET(request: Request) {
     const attempts = progress.reduce((n, x) => n + Number(x.attempt_count || 0), 0);
     const correct = progress.reduce((n, x) => n + Number(x.correct_count || 0), 0);
     const due = progress.filter((x) => x.next_review_at && new Date(x.next_review_at) <= new Date()).length;
+    const savedResponses = progress.filter((x) => x.response_saved).length;
     const recentProgress = [...progress].filter((x) => x.last_seen_at).sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at))).slice(0, 5);
     const recentMap = await objectMap(client, recentProgress.map((x) => x.object_id));
     const recent = recentProgress.map((x) => ({ ...recentMap.get(x.object_id), progress: x })).filter((x) => x.id);
@@ -87,10 +90,11 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       ok: true,
+      serverTime: new Date().toISOString(),
       dataset: { expected: 3000, categories: 25, sourceGrounded: 1800, authored: 1200, unique: 2400, variants: 600, databaseObjects: databaseObjects || 0, readyForImport: (databaseObjects || 0) !== 3000 },
       universes: UNIVERSES,
       featured: featured || [],
-      progress: { reviewed, mastered, learningReview, unseen: Math.max(0, 3000 - reviewed), recallAccuracy: attempts ? Math.round((correct / attempts) * 100) : 0, reviewDue: due },
+      progress: { reviewed, mastered, learningReview, unseen: Math.max(0, 3000 - reviewed), recallAccuracy: attempts ? Math.round((correct / attempts) * 100) : 0, reviewDue: due, savedResponses },
       recent,
       activeSession,
       goal
@@ -121,7 +125,7 @@ export async function GET(request: Request) {
       current.count += 1;
       map.set(key, current);
     }
-    return NextResponse.json({ ok: true, categories: Array.from(map.values()).sort((a, b) => a.universe.localeCompare(b.universe) || a.name.localeCompare(b.name)) });
+    return NextResponse.json({ ok: true, categories: Array.from(map.values()).sort((a, b) => a.universe.localeCompare(b.universe) || a.name.localeCompare(b.name)) }, { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600" } });
   }
 
   if (action === "object") {
@@ -137,7 +141,7 @@ export async function GET(request: Request) {
       const { data } = await client.from("cf_sources").select("id,publisher,title,url,source_type,document_date,authority_tier,notes").in("id", object.source_ids);
       sources = data || [];
     }
-    return NextResponse.json({ ok: true, object, sources });
+    return NextResponse.json({ ok: true, object, sources }, { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600" } });
   }
 
   if (action === "list" || action === "timeline") {
@@ -155,7 +159,7 @@ export async function GET(request: Request) {
     if (q) query = query.or(`title.ilike.%${q}%,topic.ilike.%${q}%,subtopic.ilike.%${q}%,category.ilike.%${q}%`);
     const { data, error } = await query.limit(limit);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, objects: data || [] });
+    return NextResponse.json({ ok: true, objects: data || [] }, { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=600" } });
   }
 
   if (action === "session-objects") {
@@ -173,7 +177,7 @@ export async function GET(request: Request) {
     }
     let due: any[] = [];
     if (dueIds.length) {
-      let dueQuery = client.from("knowledge_objects").select("*").eq("status", "published").in("id", dueIds.slice(0, 200));
+      let dueQuery = client.from("knowledge_objects").select(SESSION_FIELDS).eq("status", "published").in("id", dueIds.slice(0, 200));
       if (universe) dueQuery = dueQuery.eq("universe", universe);
       if (category) dueQuery = dueQuery.eq("category_slug", category);
       const { data } = await dueQuery.limit(count);
@@ -182,23 +186,24 @@ export async function GET(request: Request) {
     const remaining = Math.max(0, count - due.length);
     let fresh: any[] = [];
     if (remaining) {
-      let freshQuery = client.from("knowledge_objects").select("*").eq("status", "published");
+      let freshQuery = client.from("knowledge_objects").select(SESSION_FIELDS).eq("status", "published");
       if (universe) freshQuery = freshQuery.eq("universe", universe);
       if (category) freshQuery = freshQuery.eq("category_slug", category);
       if (exclude.length && exclude.length <= 200) freshQuery = freshQuery.not("id", "in", `(${exclude.join(",")})`);
       const { data } = await freshQuery.order("quality_score", { ascending: false, nullsFirst: false }).limit(Math.max(remaining * 3, remaining));
       fresh = (data || []).sort(() => Math.random() - 0.5).slice(0, remaining);
     }
-    return NextResponse.json({ ok: true, objects: [...due, ...fresh] });
+    return NextResponse.json({ ok: true, serverTime: new Date().toISOString(), objects: [...due, ...fresh] });
   }
 
   if (action === "saved") {
     if (!admin || !clientKey) return NextResponse.json({ ok: true, objects: [] });
     const kind = requestUrl.searchParams.get("kind") || "bookmarks";
-    let query = admin.from("knowledge_progress").select("object_id,status,bookmark,review_later,last_seen_at").eq("client_key", clientKey);
+    let query = admin.from("knowledge_progress").select("object_id,status,bookmark,review_later,last_result,last_seen_at,user_response,response_saved,solved_at").eq("client_key", clientKey);
     if (kind === "bookmarks") query = query.eq("bookmark", true);
     else if (kind === "review") query = query.eq("review_later", true);
     else if (kind === "mastered") query = query.eq("status", "mastered");
+    else if (kind === "responses") query = query.eq("response_saved", true).order("solved_at", { ascending: false }).limit(100);
     else if (kind === "recent") query = query.not("last_seen_at", "is", null).order("last_seen_at", { ascending: false }).limit(50);
     else query = query.eq("last_result", "Again");
     const { data } = await query;
@@ -207,10 +212,10 @@ export async function GET(request: Request) {
   }
 
   if (action === "analytics") {
-    if (!admin || !clientKey) return NextResponse.json({ ok: true, analytics: { reviewed: 0, mastered: 0, recallAccuracy: 0, reviewDue: 0, streak: 0, byUniverse: [], byCategory: [] } });
+    if (!admin || !clientKey) return NextResponse.json({ ok: true, analytics: { reviewed: 0, mastered: 0, recallAccuracy: 0, reviewDue: 0, savedResponses: 0, streak: 0, byUniverse: [], byCategory: [], sessions: [] }, serverTime: new Date().toISOString() });
     const [{ data: progress }, { data: sessions }] = await Promise.all([
-      admin.from("knowledge_progress").select("object_id,status,attempt_count,correct_count,incorrect_count,mastery_score,last_seen_at,next_review_at").eq("client_key", clientKey),
-      admin.from("knowledge_sessions").select("mode,status,last_activity_at,duration_seconds,result").eq("client_key", clientKey).order("last_activity_at", { ascending: false }).limit(500)
+      admin.from("knowledge_progress").select("object_id,status,attempt_count,correct_count,incorrect_count,mastery_score,last_seen_at,next_review_at,response_saved,solved_at").eq("client_key", clientKey),
+      admin.from("knowledge_sessions").select("mode,status,last_activity_at,duration_seconds,result,score,correct_count,incorrect_count").eq("client_key", clientKey).order("last_activity_at", { ascending: false }).limit(500)
     ]);
     const rows = progress || [];
     const map = await objectMap(client, rows.map((x) => x.object_id));
@@ -225,14 +230,35 @@ export async function GET(request: Request) {
         const x = store.get(key) || { name: key, reviewed: 0, mastered: 0, attempts: 0, correct: 0 };
         if (row.status !== "unseen") x.reviewed += 1;
         if (row.status === "mastered") x.mastered += 1;
-        x.attempts += Number(row.attempt_count || 0); x.correct += Number(row.correct_count || 0); store.set(key, x);
+        x.attempts += Number(row.attempt_count || 0);
+        x.correct += Number(row.correct_count || 0);
+        store.set(key, x);
       }
     }
     const finalize = (m: Map<string, any>) => Array.from(m.values()).map((x) => ({ ...x, accuracy: x.attempts ? Math.round((x.correct / x.attempts) * 100) : 0 })).sort((a, b) => b.reviewed - a.reviewed);
     const meaningfulDays = new Set((sessions || []).filter((s) => s.last_activity_at).map((s) => new Date(s.last_activity_at).toDateString()));
-    let streak = 0; const cursor = new Date();
-    for (let i = 0; i < 365; i += 1) { if (!meaningfulDays.has(cursor.toDateString())) break; streak += 1; cursor.setDate(cursor.getDate() - 1); }
-    return NextResponse.json({ ok: true, analytics: { reviewed: rows.filter((x) => x.status !== "unseen").length, mastered: rows.filter((x) => x.status === "mastered").length, recallAccuracy: attempts ? Math.round((correct / attempts) * 100) : 0, reviewDue: rows.filter((x) => x.next_review_at && new Date(x.next_review_at) <= new Date()).length, streak, byUniverse: finalize(byUniverse), byCategory: finalize(byCategory), sessions: sessions || [] } });
+    let streak = 0;
+    const cursor = new Date();
+    for (let i = 0; i < 365; i += 1) {
+      if (!meaningfulDays.has(cursor.toDateString())) break;
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return NextResponse.json({
+      ok: true,
+      serverTime: new Date().toISOString(),
+      analytics: {
+        reviewed: rows.filter((x) => x.status !== "unseen").length,
+        mastered: rows.filter((x) => x.status === "mastered").length,
+        recallAccuracy: attempts ? Math.round((correct / attempts) * 100) : 0,
+        reviewDue: rows.filter((x) => x.next_review_at && new Date(x.next_review_at) <= new Date()).length,
+        savedResponses: rows.filter((x) => x.response_saved).length,
+        streak,
+        byUniverse: finalize(byUniverse),
+        byCategory: finalize(byCategory),
+        sessions: sessions || []
+      }
+    });
   }
 
   return NextResponse.json({ ok: false, error: "Unknown Knowledge Vault action." }, { status: 400 });
@@ -246,20 +272,47 @@ export async function POST(request: Request) {
   const clientKey = cleanKey(String(body.clientKey || ""));
   if (!clientKey) return NextResponse.json({ ok: false, error: "A valid clientKey is required." }, { status: 400 });
 
-  if (["rate", "seen", "bookmark", "reviewLater"].includes(action)) {
+  if (action === "resetAll") {
+    const [p, s, g] = await Promise.all([
+      admin.from("knowledge_progress").delete({ count: "exact" }).eq("client_key", clientKey),
+      admin.from("knowledge_sessions").delete({ count: "exact" }).eq("client_key", clientKey),
+      admin.from("knowledge_goals").delete({ count: "exact" }).eq("client_key", clientKey)
+    ]);
+    const error = p.error || s.error || g.error;
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, resetAt: new Date().toISOString(), deleted: { progress: p.count || 0, sessions: s.count || 0, goals: g.count || 0 } });
+  }
+
+  if (["rate", "seen", "bookmark", "reviewLater", "saveResponse"].includes(action)) {
     const objectId = String(body.objectId || "");
     if (!objectId) return NextResponse.json({ ok: false, error: "objectId is required." }, { status: 400 });
     const { data: current } = await admin.from("knowledge_progress").select("*").eq("client_key", clientKey).eq("object_id", objectId).maybeSingle();
     const now = new Date().toISOString();
-    const next: any = current || { client_key: clientKey, object_id: objectId, status: "unseen", attempt_count: 0, correct_count: 0, incorrect_count: 0, mastery_score: 0, bookmark: false, review_later: false, first_seen_at: now };
-    next.last_seen_at = now; next.updated_at = now;
+    const next: any = current || { client_key: clientKey, object_id: objectId, status: "unseen", attempt_count: 0, correct_count: 0, incorrect_count: 0, mastery_score: 0, bookmark: false, review_later: false, response_saved: false, first_seen_at: now };
+    next.last_seen_at = now;
+    next.updated_at = now;
+    if (!next.first_seen_at) next.first_seen_at = now;
     if (action === "seen" && next.status === "unseen") next.status = "seen";
     if (action === "bookmark") next.bookmark = Boolean(body.value);
     if (action === "reviewLater") next.review_later = Boolean(body.value);
+    if (action === "saveResponse") {
+      const response = String(body.response || "").trim().slice(0, 12000);
+      if (!response) return NextResponse.json({ ok: false, error: "Write a response before saving it." }, { status: 400 });
+      next.user_response = response;
+      next.response_saved = true;
+      next.solved_at = now;
+      if (next.status === "unseen" || next.status === "seen") next.status = "learning";
+    }
     if (action === "rate") {
       const rating = String(body.rating || "Got It");
+      const response = String(body.response || "").trim().slice(0, 12000);
       next.attempt_count = Number(next.attempt_count || 0) + 1;
       next.last_result = rating;
+      next.solved_at = now;
+      if (response) {
+        next.user_response = response;
+        next.response_saved = true;
+      }
       if (rating === "Again") { next.incorrect_count = Number(next.incorrect_count || 0) + 1; next.status = "review"; next.mastery_score = Math.max(0, Number(next.mastery_score || 0) - 10); next.next_review_at = isoAfter(1); next.confidence = 1; }
       else if (rating === "Hard") { next.incorrect_count = Number(next.incorrect_count || 0) + 1; next.status = "review"; next.mastery_score = Math.min(95, Number(next.mastery_score || 0) + 5); next.next_review_at = isoAfter(2); next.confidence = 2; }
       else if (rating === "Mastered") { next.correct_count = Number(next.correct_count || 0) + 1; next.status = "mastered"; next.mastery_score = 100; next.next_review_at = isoAfter(30); next.confidence = 4; }
@@ -267,7 +320,7 @@ export async function POST(request: Request) {
     }
     const { data, error } = await admin.from("knowledge_progress").upsert(next, { onConflict: "client_key,object_id" }).select().single();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, progress: data });
+    return NextResponse.json({ ok: true, progress: data, serverTime: now });
   }
 
   if (action === "startSession") {
