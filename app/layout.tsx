@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./prepmate.css";
 import "./advanced.css";
+import "./advanced-workstation.css";
 import "./interview.css";
 import "./knowledge-vault.css";
 import "./knowledge-dashboard.css";
