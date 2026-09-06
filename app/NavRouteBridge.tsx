@@ -69,6 +69,33 @@ export default function NavRouteBridge() {
       });
     };
 
+    const ensureQuickMathStyles = () => {
+      if (document.getElementById("cf-quick-math-practice-style")) return;
+      const style = document.createElement("style");
+      style.id = "cf-quick-math-practice-style";
+      style.textContent = `
+        .cf-qm-promo{margin:0 0 14px;border:1px solid #d9e5f6;border-radius:14px;background:linear-gradient(115deg,#f8fbff 0%,#eef5ff 58%,#f9fbff 100%);padding:16px 18px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;box-shadow:0 5px 18px rgba(28,92,184,.06)}
+        .cf-qm-copy{display:flex;gap:14px;align-items:center;min-width:0}.cf-qm-icon{width:48px;height:48px;flex:0 0 48px;border-radius:13px;background:linear-gradient(135deg,#126fff,#153fbe);display:grid;place-items:center;color:#fff;font-size:21px;font-weight:900;box-shadow:0 8px 20px rgba(25,91,213,.22)}
+        .cf-qm-copy small{font-size:8px;letter-spacing:.13em;color:#1768e8;font-weight:900}.cf-qm-copy h3{font-size:15px;margin:3px 0;color:#15233a}.cf-qm-copy p{font-size:10px;line-height:1.45;color:#6e7b91;margin:0}.cf-qm-meta{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}.cf-qm-meta span{font-size:8px;font-weight:800;padding:4px 7px;border-radius:999px;background:#fff;border:1px solid #dbe6f3;color:#49617e}
+        .cf-qm-actions{display:flex;align-items:center;gap:10px}.cf-qm-actions div{text-align:right}.cf-qm-actions b{display:block;font-size:17px;color:#14233c}.cf-qm-actions small{font-size:8px;color:#7a8799}.cf-qm-actions button{border:0;background:#176ef0;color:#fff;border-radius:10px;padding:11px 15px;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap;box-shadow:0 8px 18px rgba(23,110,240,.2)}
+        @media(max-width:760px){.cf-qm-promo{grid-template-columns:1fr}.cf-qm-actions{justify-content:space-between}.cf-qm-actions div{text-align:left}}
+      `;
+      document.head.appendChild(style);
+    };
+
+    const ensureQuickMathPracticeEntry = () => {
+      if (window.location.pathname !== "/practice") return;
+      if (document.querySelector(".cf-qm-promo")) return;
+      const hero = Array.from(document.querySelectorAll("main section")).find((node) => clean(node.textContent || "").includes("Consistent Practice Creates Extraordinary Results"));
+      if (!hero || !hero.parentElement) return;
+      ensureQuickMathStyles();
+      const card = document.createElement("section");
+      card.className = "cf-qm-promo";
+      card.innerHTML = `<div class="cf-qm-copy"><div class="cf-qm-icon">±</div><div><small>NEW · MENTAL SPEED TRAINING</small><h3>Quick Mathematics</h3><p>Sharpen raw calculation speed across arithmetic, percentages, fractions, ratios, roots, powers, BODMAS, algebra and finance mental math.</p><div class="cf-qm-meta"><span>10,000+ deterministic drills</span><span>20 skill families</span><span>10 difficulty levels</span><span>Dashboard-connected</span></div></div></div><div class="cf-qm-actions"><div><b>Think faster.</b><small>Make arithmetic automatic.</small></div><button type="button">Open Quick Math →</button></div>`;
+      card.querySelector("button")?.addEventListener("click", () => navigate("/practice/quick-math"));
+      hero.insertAdjacentElement("afterend", card);
+    };
+
     const ensureDashboardSwitch = () => {
       if (window.location.pathname !== "/dashboard") return;
       if (document.querySelector(".kv-injected-dashboard-switch")) return;
@@ -93,6 +120,7 @@ export default function NavRouteBridge() {
       if (!button) return;
 
       if (button.closest(".kv-dashboard-switch, .kv-injected-dashboard-switch")) return;
+      if (button.closest(".cf-qm-promo")) return;
 
       const route = directRouteFor(button.textContent || "");
       if (!route || window.location.pathname === route) return;
@@ -104,6 +132,7 @@ export default function NavRouteBridge() {
 
     const enforceRootRoute = () => {
       ensureKnowledgeVaultNavigation();
+      ensureQuickMathPracticeEntry();
       ensureDashboardSwitch();
       if (redirecting || window.location.pathname !== "/") return;
       const params = new URLSearchParams(window.location.search);
