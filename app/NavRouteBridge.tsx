@@ -101,7 +101,7 @@ export default function NavRouteBridge() {
       const card = document.createElement("section");
       card.className = "cf-qm-promo";
       card.setAttribute("aria-label", "Quick Mathematics");
-      card.innerHTML = `<div class="cf-qm-copy"><div class="cf-qm-icon">±</div><div><small>DEDICATED MENTAL SPEED TRAINING</small><h3>Quick Mathematics</h3><p>Train arithmetic, percentages, fractions, ratios, roots, powers, BODMAS, algebra and finance mental math without leaving Practice.</p><div class="cf-qm-meta"><span>10,000+ drills</span><span>20 skill families</span><span>Difficulty 1–10</span><span>Tracks speed + accuracy</span></div></div></div><div class="cf-qm-actions"><div><b>Make numbers automatic.</b><small>Start with a 10, 25, 50 or 100-drill sprint.</small></div><button type="button">Open Quick Math →</button></div>`;
+      card.innerHTML = `<div class="cf-qm-copy"><div class="cf-qm-icon">±</div><div><small>DEDICATED MENTAL SPEED TRAINING</small><h3>Quick Mathematics</h3><p>Train from number fluency through percentages, valuation, PE/IB math, leverage, IRR intuition, markets, modeling speed and extreme mental calculation.</p><div class="cf-qm-meta"><span>10,000 validated questions</span><span>44 progressive levels</span><span>Difficulty 1–10</span><span>Tracks speed + accuracy</span></div></div></div><div class="cf-qm-actions"><div><b>Make numbers automatic.</b><small>Start with a 10, 25, 50 or 100-question sprint.</small></div><button type="button">Open Quick Math →</button></div>`;
       card.querySelector("button")?.addEventListener("click", () => navigate("/practice/quick-math"));
       hero.insertAdjacentElement("afterend", card);
     };
