@@ -23,6 +23,19 @@ async function progressMap(db: ReturnType<typeof createClient>, key: string, ref
   return new Map((data || []).map((x: any) => [x.object_ref, x]));
 }
 
+async function allAdvancedProgress(db: ReturnType<typeof createClient>, key: string) {
+  if (!key) return [] as any[];
+  const rows: any[] = [];
+  const pageSize = 1000;
+  for (let from = 0; from < 7000; from += pageSize) {
+    const { data, error } = await db.from("advanced_progress").select("object_ref,status,score,attempts,response_text,last_activity_at,solved_at").eq("client_key", key).order("last_activity_at", { ascending: false }).range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows;
+}
+
 export async function GET(request: Request) {
   const db = admin();
   if (!db) return NextResponse.json({ ok: false, error: "Advanced database is not configured." }, { status: 503 });
@@ -31,10 +44,16 @@ export async function GET(request: Request) {
   const key = clientKey(u.searchParams.get("clientKey"));
 
   if (action === "manifest") {
-    const { data: rows, error } = await db.from("advanced_objects").select("id,module_number,module,difficulty_band,content_type").eq("status", "published").order("module_number");
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    const rows: any[] = [];
+    const pageSize = 1000;
+    for (let from = 0; from < 7000; from += pageSize) {
+      const { data, error } = await db.from("advanced_objects").select("id,module_number,module,difficulty_band,content_type,object_id").eq("status", "published").order("object_id").range(from, from + pageSize - 1);
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      rows.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
     const modules = new Map<number, any>();
-    for (const r of rows || []) {
+    for (const r of rows) {
       const m = modules.get(r.module_number) || { module_number: r.module_number, module: r.module, count: 0, difficulty: { A: 0, B: 0, C: 0, D: 0, E: 0 }, content_types: {} as Record<string, number> };
       m.count += 1;
       m.difficulty[r.difficulty_band] = (m.difficulty[r.difficulty_band] || 0) + 1;
@@ -42,10 +61,7 @@ export async function GET(request: Request) {
       modules.set(r.module_number, m);
     }
     let progress: any[] = [];
-    if (key) {
-      const { data } = await db.from("advanced_progress").select("object_ref,status,score,attempts,last_activity_at,solved_at").eq("client_key", key);
-      progress = data || [];
-    }
+    try { progress = await allAdvancedProgress(db, key); } catch { progress = []; }
     const refs = progress.map((x) => x.object_ref);
     const moduleByRef = new Map<string, number>();
     if (refs.length) {
@@ -58,12 +74,18 @@ export async function GET(request: Request) {
     for (const p of progress) {
       const mn = moduleByRef.get(p.object_ref); if (!mn) continue;
       const x = pByModule.get(mn) || { opened: 0, solved: 0, mastered: 0, attempts: 0, scoreSum: 0, scoreN: 0 };
-      x.opened += 1; if (p.status === "solved" || p.status === "mastered") x.solved += 1; if (p.status === "mastered") x.mastered += 1;
-      x.attempts += Number(p.attempts || 0); if (p.score != null) { x.scoreSum += Number(p.score); x.scoreN += 1; }
+      x.opened += 1;
+      if (p.status === "solved" || p.status === "mastered") x.solved += 1;
+      if (p.status === "mastered") x.mastered += 1;
+      x.attempts += Number(p.attempts || 0);
+      if (p.score != null) { x.scoreSum += Number(p.score); x.scoreN += 1; }
       pByModule.set(mn, x);
     }
-    const moduleList = Array.from(modules.values()).map((m) => { const p = pByModule.get(m.module_number) || { opened: 0, solved: 0, mastered: 0, attempts: 0, scoreSum: 0, scoreN: 0 }; return { ...m, progress: { opened: p.opened, solved: p.solved, mastered: p.mastered, attempts: p.attempts, average_score: p.scoreN ? Math.round(p.scoreSum / p.scoreN) : 0, completion_pct: Math.round((p.solved / Math.max(1, m.count)) * 100) } }; });
-    return NextResponse.json({ ok: true, dataset: { total: rows?.length || 0, modules: moduleList.length, objects_per_module: moduleList.length ? moduleList[0].count : 0 }, modules: moduleList });
+    const moduleList = Array.from(modules.values()).sort((a,b)=>a.module_number-b.module_number).map((m) => {
+      const p = pByModule.get(m.module_number) || { opened: 0, solved: 0, mastered: 0, attempts: 0, scoreSum: 0, scoreN: 0 };
+      return { ...m, progress: { opened: p.opened, solved: p.solved, mastered: p.mastered, attempts: p.attempts, average_score: p.scoreN ? Math.round(p.scoreSum / p.scoreN) : 0, completion_pct: Math.round((p.solved / Math.max(1, m.count)) * 100) } };
+    });
+    return NextResponse.json({ ok: true, dataset: { total: rows.length, modules: moduleList.length, objects_per_module: moduleList.length ? Math.min(...moduleList.map((m)=>m.count)) : 0 }, modules: moduleList });
   }
 
   if (action === "list") {
@@ -74,7 +96,7 @@ export async function GET(request: Request) {
     const page = Math.max(1, num(u.searchParams.get("page"), 1));
     const limit = Math.min(50, Math.max(10, num(u.searchParams.get("limit"), 24)));
     const from = (page - 1) * limit;
-    let query = db.from("advanced_objects").select("id,object_id,module_number,module,subtopic,content_type,difficulty_band,professional_level,estimated_minutes,role,geography,deal_size_band,source_kind,quality_score,prompt,provisional_decision:raw->>provisional_decision", { count: "exact" }).eq("status", "published");
+    let query = db.from("advanced_objects").select("id,object_id,module_number,module,subtopic,content_type,difficulty_band,professional_level,estimated_minutes,role,geography,deal_size_band,source_kind,quality_score,prompt", { count: "exact" }).eq("status", "published");
     if (moduleNumber) query = query.eq("module_number", moduleNumber);
     if (difficulty && ["A","B","C","D","E"].includes(difficulty)) query = query.eq("difficulty_band", difficulty);
     if (contentType) query = query.eq("content_type", contentType);
@@ -97,8 +119,7 @@ export async function GET(request: Request) {
 
   if (action === "analytics") {
     if (!key) return NextResponse.json({ ok: true, analytics: { opened: 0, solved: 0, mastered: 0, attempts: 0, average_score: 0, recent: [] } });
-    const { data: p } = await db.from("advanced_progress").select("object_ref,status,score,attempts,response_text,last_activity_at,solved_at").eq("client_key", key).order("last_activity_at", { ascending: false });
-    const rows = p || [];
+    let rows:any[]=[]; try { rows = await allAdvancedProgress(db,key); } catch { rows=[]; }
     const refs = rows.slice(0, 20).map((x) => x.object_ref);
     const { data: objs } = refs.length ? await db.from("advanced_objects").select("id,object_id,module_number,module,subtopic,difficulty_band").in("id", refs) : { data: [] as any[] };
     const om = new Map((objs || []).map((x: any) => [x.id, x]));
