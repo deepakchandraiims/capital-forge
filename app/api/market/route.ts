@@ -202,7 +202,7 @@ async function fetchYahooHistory(symbol: string, requestedRange: string) {
   const points: HistoryPoint[] = [];
   for (let i = 0; i < timestamps.length; i++) {
     const close = toNumber(closes[i]);
-    if (close == null) continue;
+    if (close == null || close === 0) continue;
     points.push({
       timestamp: new Date(timestamps[i] * 1000).toISOString(),
       close,
@@ -244,16 +244,7 @@ async function searchYahoo(query: string) {
   if (!response.ok) throw new Error(`Yahoo search ${response.status}`);
   const data = await response.json() as any;
   const quotes = Array.isArray(data.quotes) ? data.quotes : [];
-  return quotes
-    .filter((x:any) => x?.symbol && !["OPTION","FUTURE"].includes(String(x.quoteType || "")))
-    .slice(0, 10)
-    .map((x:any) => ({
-      symbol: String(x.symbol),
-      name: String(x.shortname || x.longname || x.symbol),
-      exchange: String(x.exchDisp || x.exchange || ""),
-      type: String(x.typeDisp || x.quoteType || "Asset"),
-      currency: String(x.currency || "")
-    }));
+  return quotes.filter((x:any) => x?.symbol && !["OPTION","FUTURE"].includes(String(x.quoteType || ""))).slice(0, 10).map((x:any) => ({ symbol: String(x.symbol), name: String(x.shortname || x.longname || x.symbol), exchange: String(x.exchDisp || x.exchange || ""), type: String(x.typeDisp || x.quoteType || "Asset"), currency: String(x.currency || "") }));
 }
 
 export async function GET(request: Request) {
@@ -262,22 +253,14 @@ export async function GET(request: Request) {
   if (action === "search") {
     const q = String(searchParams.get("q") || "").trim().slice(0, 80);
     if (q.length < 1) return NextResponse.json({ ok: true, results: [] });
-    try {
-      const results = await searchYahoo(q);
-      return NextResponse.json({ ok: true, results, generatedAt: new Date().toISOString() });
-    } catch (error) {
-      return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Search unavailable", results: [] }, { status: 502 });
-    }
+    try { const results = await searchYahoo(q); return NextResponse.json({ ok: true, results, generatedAt: new Date().toISOString() }); }
+    catch (error) { return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Search unavailable", results: [] }, { status: 502 }); }
   }
 
   const symbol = (searchParams.get("symbol") || "AAPL").trim().toUpperCase();
   if (action === "history") {
-    try {
-      const history = await fetchYahooHistory(symbol, searchParams.get("range") || "1Y");
-      return NextResponse.json({ ok: true, provider: "yahoo-finance", source: "public-fallback", ...history, generatedAt: new Date().toISOString() });
-    } catch (error) {
-      return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "History unavailable", points: [] }, { status: 502 });
-    }
+    try { const history = await fetchYahooHistory(symbol, searchParams.get("range") || "1Y"); return NextResponse.json({ ok: true, provider: "yahoo-finance", source: "public-fallback", ...history, generatedAt: new Date().toISOString() }); }
+    catch (error) { return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "History unavailable", points: [] }, { status: 502 }); }
   }
 
   const provider = (process.env.MARKET_DATA_PROVIDER || request.headers.get("x-capital-forge-market-provider") || "twelvedata").toLowerCase();
