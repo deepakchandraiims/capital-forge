@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 
 type InterviewType = "Technical" | "Behavioral" | "Case" | "Industry-Specific";
 type AnswerMode = "Voice" | "Text" | "Hybrid";
@@ -40,8 +41,8 @@ type InterviewSettings = {
   language: string;
 };
 
-const tabs = ["Home","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
-const icons: Record<string,string> = {Home:"⌂",Practice:"▣",Advanced:"▥",Dashboard:"▦",Feedback:"▱","Interview Room":"▻",API:"⌘"};
+const tabs=PRIMARY_NAV;
+const icons=NAV_ICONS;
 const SESSION_KEY = "capital-forge-interview-sessions-v1";
 const SETTINGS_KEY = "capital-forge-interview-settings-v1";
 
@@ -78,13 +79,9 @@ const tips = [
 ];
 
 function nav(tab:string){
-  if(tab==="Home") window.location.assign("/home");
-  else if(tab==="Dashboard") window.location.assign("/dashboard");
-  else if(tab==="Feedback") window.location.assign("/feedback");
-  else if(tab==="Interview Room") window.location.assign("/interview");
-  else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
+  const route=routeForNav(tab);
+  if(route) window.location.assign(route);
 }
-
 function scoreTone(score:number){ return score>=80?"green":score>=75?"blue":"amber"; }
 function safeRead<T>(key:string, fallback:T):T{ try{ const raw=localStorage.getItem(key); return raw?JSON.parse(raw):fallback; }catch{return fallback;} }
 

@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LiveDateTime from "../LiveDateTime";
+import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 
-const ROUTES: Record<string,string> = { Home:"/home", "Knowledge Vault":"/knowledge-vault", Practice:"/practice", Advanced:"/advanced", Dashboard:"/dashboard", Feedback:"/feedback", "Interview Room":"/interview", API:"/?open=API" };
-const NAV = ["Home","Knowledge Vault","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
-const ICONS: Record<string,string> = { Home:"⌂","Knowledge Vault":"◇",Practice:"▣",Advanced:"▥",Dashboard:"▦",Feedback:"▱","Interview Room":"▻",API:"⌘" };
+const NAV=PRIMARY_NAV;
+const ICONS=NAV_ICONS;
 const MODULE_ICONS = ["▣","▦","▥","◫","◕","ƒx","≋","✓","◆","⚠","↗","%","∿","△","↘","⇄","+","▲","≡","◎","S","⌂","▤","IC","★"];
 const DIFF_LABEL: Record<string,string> = { A:"Advanced Analyst", B:"Senior Associate", C:"VP / Principal", D:"Director / MD", E:"GOD MODE / IC" };
 const TYPES: Record<string,string> = {
@@ -31,6 +31,7 @@ function getClientKey() {
   return v;
 }
 function formatMoney(v:any, currency:string) { if (typeof v !== "number") return String(v ?? "—"); return new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(v) + (currency ? ` ${currency}` : ""); }
+function go(tab:string) { const route=routeForNav(tab); if(route) window.location.assign(route); }
 
 export default function AdvancedPage() {
   const [clientKey,setClientKey] = useState("");
@@ -101,7 +102,7 @@ export default function AdvancedPage() {
       <LiveDateTime />
     </header>
     <aside className="advx-sidebar">
-      <nav>{NAV.map(n=><button key={n} className={n==="Advanced"?"active":""} onClick={()=>location.assign(ROUTES[n])}><span>{ICONS[n]}</span>{n}</button>)}</nav>
+      <nav>{NAV.map(n=><button key={n} className={n==="Advanced"?"active":""} onClick={()=>go(n)}><span>{ICONS[n]}</span>{n}</button>)}</nav>
       <div className="advx-side-stat"><small>ADVANCED DATABASE</small><b>{dataset.total.toLocaleString()}</b><span>institutional objects</span><i><em style={{width:`${overall.pct}%`}}/></i><strong>{overall.pct}% solved</strong></div>
     </aside>
     <main className="advx-main">

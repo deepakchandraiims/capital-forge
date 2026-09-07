@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../../navigation";
 import LiveDateTime from "../../LiveDateTime";
 
-const tabs=["Home","Knowledge Vault","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
-const icons:Record<string,string>={Home:"⌂","Knowledge Vault":"◇",Practice:"▣",Advanced:"▥",Dashboard:"▦",Feedback:"▱","Interview Room":"▻",API:"⌘"};
+const tabs=PRIMARY_NAV;
+const icons=NAV_ICONS;
 const universeOrder=["Technicals","Market History","Legendary Trades & Deals","Crises & Events","Finance Facts"];
 const universeTotals:Record<string,number>={"Technicals":1200,"Market History":480,"Legendary Trades & Deals":600,"Crises & Events":480,"Finance Facts":240};
 const universeIcons:Record<string,string>={"Technicals":"▥","Market History":"▤","Legendary Trades & Deals":"▥","Crises & Events":"◎","Finance Facts":"◉"};
 
-function go(tab:string){const m:Record<string,string>={Home:"/home","Knowledge Vault":"/knowledge-vault",Practice:"/practice",Dashboard:"/dashboard",Feedback:"/feedback","Interview Room":"/interview"};window.location.assign(m[tab]||`/?open=${encodeURIComponent(tab)}`)}
+function go(tab:string){
+  const route=routeForNav(tab);
+  if(route) window.location.assign(route);
+}
 function clientKey(){const k="capital-forge-kv-client-v1";let v=localStorage.getItem(k);if(!v){v=`cfkv-${crypto.randomUUID()}`;localStorage.setItem(k,v);}return v;}
 function asPercent(n:number,d:number){return d?Math.round((n/d)*100):0;}
 function ago(value?:string){if(!value)return "";const diff=Date.now()-new Date(value).getTime();const m=Math.max(0,Math.floor(diff/60000));if(m<1)return"just now";if(m<60)return `${m} min ago`;const h=Math.floor(m/60);if(h<24)return `${h} hr${h===1?"":"s"} ago`;const d=Math.floor(h/24);return `${d} day${d===1?"":"s"} ago`;}

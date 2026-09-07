@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 
 type FeedbackType = "Practice" | "Advanced" | "Interview" | "Assignment";
 type RangeKey = "Last 7 Days" | "Last 30 Days" | "Last 90 Days" | "This Month" | "Previous Month" | "This Quarter" | "Year to Date" | "All Time";
@@ -26,8 +27,8 @@ type FeedbackItem = {
 
 type TabKey = "All Feedback" | "Practice" | "Advanced" | "Mock Interviews" | "Assignments" | "Saved";
 
-const navTabs = ["Home","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
-const navIcons: Record<string,string> = {Home:"⌂",Practice:"▣",Advanced:"▥",Dashboard:"▦",Feedback:"▱","Interview Room":"▻",API:"⌘"};
+const tabs=PRIMARY_NAV;
+const icons=NAV_ICONS;
 const ranges: RangeKey[] = ["Last 7 Days","Last 30 Days","Last 90 Days","This Month","Previous Month","This Quarter","Year to Date","All Time"];
 
 const seedFeedback: FeedbackItem[] = [
@@ -68,11 +69,9 @@ const improvementAreas = [
 ];
 
 function routeTo(tab:string){
-  if(tab==="Dashboard") window.location.assign("/dashboard");
-  else if(tab==="Feedback") window.location.assign("/feedback");
-  else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
+  const route=routeForNav(tab);
+  if(route) window.location.assign(route);
 }
-
 function scoreTone(score:number){ return score>=75?"green":score>=60?"amber":"red"; }
 
 export default function FeedbackPage(){
@@ -158,7 +157,7 @@ export default function FeedbackPage(){
       <button className="feedback-ai" onClick={askAI}>✦ AI Assistant</button><button className="feedback-bell">♧</button><div className="feedback-profile"><div className="feedback-avatar">DC</div><div><b>Deepak</b><small>Pro Plan</small></div><span>⌄</span></div>
     </header>
 
-    <aside className="feedback-sidebar"><nav>{navTabs.map(tab=><button key={tab} className={tab==="Feedback"?"active":""} onClick={()=>tab!=="Feedback"&&routeTo(tab)}><span>{navIcons[tab]}</span>{tab}</button>)}</nav><div className="feedback-upgrade"><h3>👑 Upgrade to Pro</h3><p>Get detailed AI feedback, mock interviews and more.</p><button>Upgrade Now →</button></div><div className="feedback-version">Capital Forge v1.4.0<br/>Built for your better tomorrow.</div></aside>
+    <aside className="feedback-sidebar"><nav>{tabs.map(tab=><button key={tab} className={tab==="Feedback"?"active":""} onClick={()=>tab!=="Feedback"&&routeTo(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="feedback-upgrade"><h3>👑 Upgrade to Pro</h3><p>Get detailed AI feedback, mock interviews and more.</p><button>Upgrade Now →</button></div><div className="feedback-version">Capital Forge v1.4.0<br/>Built for your better tomorrow.</div></aside>
 
     <main className="feedback-workspace"><div className="feedback-page-grid">
       <section className="feedback-main">

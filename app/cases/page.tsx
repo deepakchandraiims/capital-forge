@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PRIMARY_NAV, routeForNav } from "../navigation";
 
 type CanonicalCase = Record<string, any> & {
   id: string;
@@ -22,18 +23,12 @@ type CanonicalCase = Record<string, any> & {
   topic_name?: string;
 };
 
-const tabs = ["Home", "Practice", "Cases", "Advanced", "Dashboard", "Feedback", "Interview Room"];
+const tabs = PRIMARY_NAV;
 
 function go(tab: string) {
-  if (tab === "Home") window.location.assign("/home");
-  else if (tab === "Practice") window.location.assign("/practice");
-  else if (tab === "Cases") window.location.assign("/cases");
-  else if (tab === "Dashboard") window.location.assign("/dashboard");
-  else if (tab === "Feedback") window.location.assign("/feedback");
-  else if (tab === "Interview Room") window.location.assign("/interview");
-  else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
+  const route = routeForNav(tab);
+  if (route) window.location.assign(route);
 }
-
 function pickText(item: CanonicalCase, keys: string[]) {
   for (const key of keys) {
     const value = item[key];
@@ -97,7 +92,7 @@ export default function CasesPage() {
   return <div className="pm-shell">
     <aside className="pm-sidebar">
       <div className="pm-brand"><div className="pm-logo">CF</div><div><b>Capital Forge</b><span>Master Finance. Build Your Future.</span></div></div>
-      <nav className="pm-nav">{tabs.map((tab) => <button key={tab} className={tab === "Cases" ? "active" : ""} onClick={() => go(tab)}>▥ &nbsp; {tab}</button>)}</nav>
+      <nav className="pm-nav">{tabs.map((tab) => <button key={tab} className={tab === "Advanced" ? "active" : ""} onClick={() => go(tab)}>▥ &nbsp; {tab}</button>)}</nav>
       <div className="pm-upgrade"><b>Decision Lab</b><p>Work through PE, M&A, private credit, distressed, VC, public markets and corporate-finance judgment cases.</p><button onClick={() => go("Interview Room")}>Practice in Interview Room →</button></div>
       <div className="pm-version">Capital Forge · Canonical Cases<br/>{cases.length || 110} published cases</div>
     </aside>

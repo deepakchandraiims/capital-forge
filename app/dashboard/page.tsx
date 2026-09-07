@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import LiveDateTime from "../LiveDateTime";
 
 type RangeKey = "Last 7 Days" | "Last 30 Days" | "Last 90 Days" | "This Month" | "Previous Month" | "This Quarter" | "Year to Date" | "All Time";
@@ -10,8 +11,8 @@ type Goal = { target: number; current: number; type: string; studyDays: string[]
 type Activity = { icon: string; tone: string; title: string; meta: string; time: string; route: string };
 
 const ranges: RangeKey[] = ["Last 7 Days","Last 30 Days","Last 90 Days","This Month","Previous Month","This Quarter","Year to Date","All Time"];
-const tabs = ["Home","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
-const icons: Record<string,string> = { Home:"⌂",Practice:"▣",Advanced:"▥",Dashboard:"▦",Feedback:"▱","Interview Room":"▻",API:"⌘" };
+const tabs=PRIMARY_NAV;
+const icons=NAV_ICONS;
 const DEFAULT_GOAL: Goal = {target:20,current:0,type:"Hours Learned",studyDays:["Mon","Tue","Wed","Thu","Fri"]};
 
 function masteryTone(value:number){ if(value>=85)return"green"; if(value>=70)return"teal"; if(value>=55)return"blue"; if(value>=40)return"amber"; return"red"; }
@@ -20,12 +21,8 @@ function attemptTime(a:Attempt){return a.at||a.createdAt||"";}
 function ago(value?:string){if(!value)return "";const diff=Math.max(0,Date.now()-new Date(value).getTime());const m=Math.floor(diff/60000);if(m<1)return"just now";if(m<60)return`${m} min ago`;const h=Math.floor(m/60);if(h<24)return`${h} hr${h===1?"":"s"} ago`;const d=Math.floor(h/24);return`${d} day${d===1?"":"s"} ago`;}
 function go(tab:string, focus?:string){
   if(focus) localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify({topic:focus,createdAt:new Date().toISOString()}));
-  if(tab==="Home") window.location.assign("/home");
-  else if(tab==="Practice") window.location.assign("/practice");
-  else if(tab==="Dashboard") window.location.assign("/dashboard");
-  else if(tab==="Feedback") window.location.assign("/feedback");
-  else if(tab==="Interview Room") window.location.assign("/interview");
-  else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
+  const route=routeForNav(tab);
+  if(route) window.location.assign(route);
 }
 function rangeBounds(range:RangeKey){
   const now=new Date();

@@ -2,13 +2,14 @@
 
 import type { ReactNode } from "react";
 import LiveDateTime from "../LiveDateTime";
+import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 
-const tabs = ["Home", "Knowledge Vault", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];
-const icons: Record<string, string> = { Home: "⌂", "Knowledge Vault": "◇", Practice: "▣", Advanced: "▥", Dashboard: "▦", Feedback: "▱", "Interview Room": "▻", API: "⌘" };
+const tabs=PRIMARY_NAV;
+const icons=NAV_ICONS;
 
 function go(tab: string) {
-  const direct: Record<string, string> = { Home: "/home", "Knowledge Vault": "/knowledge-vault", Practice: "/practice", Dashboard: "/dashboard", Feedback: "/feedback", "Interview Room": "/interview" };
-  window.location.assign(direct[tab] || `/?open=${encodeURIComponent(tab)}`);
+  const route=routeForNav(tab);
+  if(route) window.location.assign(route);
 }
 
 export default function KnowledgeVaultShell({ children, search, onSearch }: { children: ReactNode; search?: string; onSearch?: (value: string) => void }) {

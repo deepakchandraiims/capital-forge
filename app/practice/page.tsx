@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import LiveDateTime from "../LiveDateTime";
 import styles from "./practice.module.css";
 
@@ -31,18 +32,13 @@ type Mode = "all" | "recent" | "bookmarked" | "weak" | "custom";
 const PAGE_SIZE = 8;
 const CATALOG_CACHE = "capital-forge-practice-catalog-cache-v2";
 const ATTEMPT_STORE = "capital-forge-canonical-practice-v1";
-const tabs = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];
-const icons: Record<string, string> = { Home: "⌂", Practice: "▣", Advanced: "▥", Dashboard: "▦", Feedback: "▱", "Interview Room": "▻", API: "⌘" };
+const tabs=PRIMARY_NAV;
+const icons=NAV_ICONS;
 
-function go(tab: string) {
-  if (tab === "Home") window.location.assign("/home");
-  else if (tab === "Practice") window.location.assign("/practice");
-  else if (tab === "Dashboard") window.location.assign("/dashboard");
-  else if (tab === "Feedback") window.location.assign("/feedback");
-  else if (tab === "Interview Room") window.location.assign("/interview");
-  else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
+function go(tab:string){
+  const route=routeForNav(tab);
+  if(route) window.location.assign(route);
 }
-
 function pretty(value?: string | null) {
   if (!value) return "Question";
   return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());

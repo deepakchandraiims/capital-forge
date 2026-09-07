@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { routeForNav } from "./app/navigation";
 
 const fastMarketSymbols = new Set([
   "NIFTY:NSE","NIFTY50:NSE","SENSEX:BSE","BANKNIFTY:NSE","NIFTYBANK:NSE",
@@ -22,21 +23,13 @@ export function proxy(request: NextRequest) {
 
   if (pathname !== "/") return NextResponse.next();
 
-  const open = searchParams.get("open");
-  const destination =
-    open === "Dashboard" ? "/dashboard" :
-    open === "Feedback" ? "/feedback" :
-    open === "Interview Room" ? "/interview" :
-    open === "Practice" ? "/practice" :
-    open === "Home" || !open ? "/home" :
-    null;
-
-  if (!destination) return NextResponse.next();
-
-  const url = request.nextUrl.clone();
-  url.pathname = destination;
-  url.search = "";
-  return NextResponse.redirect(url);
+const open = searchParams.get("open");
+const legacyDestination = open ? routeForNav(open) : undefined;
+const url = request.nextUrl.clone();
+url.pathname = legacyDestination || "/home";
+if (legacyDestination) url.searchParams.delete("open");
+else url.search = "";
+return NextResponse.redirect(url);
 }
 
 export const config = {

@@ -56,7 +56,7 @@ type LearningPlan = {
   priority: string;
 };
 
-const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];
+const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room"];
 const tabIcons: Record<Tab, string> = {
   Home: "⌂",
   Practice: "▣",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import LiveDateTime from "../LiveDateTime";
 
 type Tone = "blue" | "red" | "green" | "purple" | "black";
@@ -25,8 +26,8 @@ type MarketQuote = { price:number|null; change:number|null; percentChange:number
 type MarketRow = { id:string; label:string; symbol:string; market:string; kind:string; quote?:MarketQuote|null; status:"loading"|"live"|"unavailable" };
 type SearchResult = { symbol:string; name:string; exchange?:string; type?:string; currency?:string };
 
-const tabs=["Home","Practice","Advanced","Dashboard","Feedback","Interview Room","API"];
-const icons:Record<string,string>={Home:"⌂",Practice:"▣",Advanced:"▥",Dashboard:"▦",Feedback:"▱","Interview Room":"▻",API:"⌘"};
+const tabs=PRIMARY_NAV;
+const icons=NAV_ICONS;
 const fallbackImages=[
   "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1000&auto=format&fit=crop",
   "https://images.unsplash.com/photo-1677442136019-21780ecad995?q=80&w=1000&auto=format&fit=crop",
@@ -63,12 +64,8 @@ const watchlist:Omit<MarketRow,"quote"|"status">[]=[
 ];
 
 function nav(tab:string){
-  if(tab==="Home") window.location.assign("/home");
-  else if(tab==="Practice") window.location.assign("/practice");
-  else if(tab==="Dashboard") window.location.assign("/dashboard");
-  else if(tab==="Feedback") window.location.assign("/feedback");
-  else if(tab==="Interview Room") window.location.assign("/interview");
-  else window.location.assign(`/?open=${encodeURIComponent(tab)}`);
+  const route=routeForNav(tab);
+  if(route) window.location.assign(route);
 }
 function openMarket(symbol:string,name?:string){
   const params=new URLSearchParams({symbol});
