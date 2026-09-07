@@ -9,6 +9,7 @@ import "./knowledge-dashboard.css";
 import "./auth.css";
 import NavRouteBridge from "./NavRouteBridge";
 import AuthProvider from "./AuthProvider";
+import LegacyProgressClaimer from "./LegacyProgressClaimer";
 import { getAuthContext } from "../lib/auth/server";
 
 export const metadata: Metadata = {
@@ -34,6 +35,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body>
         <AuthProvider profile={profile}>
+          <LegacyProgressClaimer />
           <NavRouteBridge />
           {children}
         </AuthProvider>
