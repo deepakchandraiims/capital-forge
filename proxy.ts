@@ -8,7 +8,7 @@ const fastMarketSymbols = new Set([
   "GOLD","BRENT","USDINR","INDIAVIX","US10Y","NVDA","AAPL"
 ]);
 
-const PUBLIC_PAGES = ["/login", "/signup", "/auth/confirm", "/auth/error"];
+const PUBLIC_PAGES = ["/login", "/signup", "/auth/confirm", "/auth/error", "/auth/signout"];
 const PUBLIC_API_PREFIXES = [
   "/api/health",
   "/api/build-info",
@@ -49,7 +49,6 @@ function apiError(status: number, message: string) {
 export async function proxy(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
 
-  // Preserve the fast quote rewrite from CF-052/CF-051. Market data itself is not user-specific.
   if (pathname === "/api/market") {
     const action = searchParams.get("action");
     const symbol = String(searchParams.get("symbol") || "").toUpperCase();
@@ -61,7 +60,6 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Keep the legacy root redirect behavior. The destination request is then auth-gated normally.
   if (pathname === "/") {
     const open = searchParams.get("open");
     const legacyDestination = open ? routeForNav(open) : undefined;
@@ -79,6 +77,8 @@ export async function proxy(request: NextRequest) {
   const emailVerified = Boolean(user?.email_confirmed_at);
   const approved = Boolean(user && emailVerified && profile?.status === "approved");
   const admin = Boolean(approved && profile?.role === "admin");
+
+  if (pathname === "/auth/signout") return response;
 
   if (pathname === "/login" || pathname === "/signup") {
     if (!user) return response;
@@ -113,7 +113,6 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  // Everything else in the learning product requires an approved account.
   if (!user) return redirectWithCookies(request, `/login?next=${encodeURIComponent(pathname + request.nextUrl.search)}`, cookieWrites);
   if (!emailVerified) return redirectWithCookies(request, "/pending?state=email-unverified", cookieWrites);
   if (!profile || profile.status !== "approved") return redirectWithCookies(request, "/pending", cookieWrites);
