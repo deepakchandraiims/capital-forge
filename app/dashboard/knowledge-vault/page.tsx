@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../../navigation";
 import LiveDateTime from "../../LiveDateTime";
+import { profileDisplayName, profileInitials, useAuthProfile } from "../../AuthProvider";
 
 const tabs=PRIMARY_NAV;
 const icons=NAV_ICONS;
@@ -25,6 +26,9 @@ const emptyAnalytics:Analytics={reviewed:0,mastered:0,recallAccuracy:0,reviewDue
 
 export default function KnowledgeVaultDashboard(){
   const router=useRouter();
+  const profile=useAuthProfile();
+  const displayName=profileDisplayName(profile);
+  const initials=profileInitials(profile);
   function go(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [a,setA]=useState<Analytics>(emptyAnalytics);
   const [recent,setRecent]=useState<Recent[]>([]);
@@ -91,7 +95,7 @@ export default function KnowledgeVaultDashboard(){
   }
 
   return <div className="dash-app kv-analytics-page">
-    <header className="dash-header"><div className="dash-brand"><div className="dash-brand-mark">CF</div><div><b>Capital Forge</b><small>Master Finance. Build Your Future.</small></div></div><div className="dash-header-mid"><div className="dash-search"><span>⌕</span><input placeholder="Search topics, companies, trades, events or concepts..."/><kbd>⌘ K</kbd></div></div><div className="dash-header-right"><LiveDateTime compact/><button className="dash-ai" onClick={()=>go("Advanced")}>✦ AI Assistant</button><div className="dash-profile"><div className="dash-avatar">DC</div><div><b>Deepak</b><small>Capital Forge</small></div><button className="dash-caret">⌄</button></div></div></header>
+    <header className="dash-header"><div className="dash-brand"><div className="dash-brand-mark">CF</div><div><b>Capital Forge</b><small>Master Finance. Build Your Future.</small></div></div><div className="dash-header-mid"><div className="dash-search"><span>⌕</span><input placeholder="Search topics, companies, trades, events or concepts..."/><kbd>⌘ K</kbd></div></div><div className="dash-header-right"><LiveDateTime compact/><button className="dash-ai" onClick={()=>go("Advanced")}>✦ AI Assistant</button><button className="dash-profile" onClick={()=>router.push("/account")}><div className="dash-avatar">{initials}</div><div><b>{displayName}</b><small>Capital Forge</small></div><span className="dash-caret">⌄</span></button></div></header>
     <aside className="dash-sidebar"><nav className="dash-nav">{tabs.map(tab=><button key={tab} className={tab==="Dashboard"?"active":""} onClick={()=>tab==="Dashboard"?undefined:go(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="dash-upgrade"><h3>Knowledge Vault</h3><p>Your permanent finance memory system across 3,000 canonical learning objects.</p><button onClick={()=>go("Knowledge Vault")}>Continue Learning →</button></div><div className="dash-version">Capital Forge · Live Knowledge Analytics<br/>Actual timestamps · saved responses · real scores.</div></aside>
     <main className="dash-workspace"><div className="kv-dash-wrap">
       <div className="kv-dashboard-switch"><button onClick={()=>router.push("/dashboard")}>▥ &nbsp; Practice & Skills</button><button className="active">▣ &nbsp; Knowledge Vault</button></div>
