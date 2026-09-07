@@ -15,8 +15,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: CF-052 route-map migration
-        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+      - run: npm install
+      - name: Capture existing TypeScript baseline
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck > /tmp/ts-before.txt 2>&1
+          echo "BASELINE_TSC_EXIT=$?" >> "$GITHUB_ENV"
+          set -e
+      - name: Apply approved CF-052 migration
         shell: bash
         run: |
           python3 - <<'PY'
@@ -152,17 +159,18 @@ jobs:
           if n!=1: raise SystemExit('BLOCKED: Vault shell nav config not found')
           p.write_text(t)
 
+          # Canonicalize the four context-carrying deep links; preserve their query payloads.
           replace_once('app/interview/session/[id]/results/page.tsx','window.location.assign("/?open=Practice")','window.location.assign("/practice")','interview weak-area handoff')
           replace_once('app/knowledge-vault/LearningObjectRenderer.tsx','`/?open=Advanced&kvObject=${encodeURIComponent(object.id || object.source_record_key || "")}&prompt=${encodeURIComponent(aiPrompt)}`','`/advanced?kvObject=${encodeURIComponent(object.id || object.source_record_key || "")}&prompt=${encodeURIComponent(aiPrompt)}`','Vault Ask AI deep link')
           replace_once('app/knowledge-vault/LearningObjectRenderer.tsx','`/?open=Advanced&topic=${encodeURIComponent(object.topic || object.category || "")}`','`/advanced?topic=${encodeURIComponent(object.topic || object.category || "")}`','Vault Go Deeper deep link')
           replace_once('app/markets/page.tsx','`/?open=Advanced&prompt=${encodeURIComponent(`Analyze ${displayName} (${symbol}) over ${range}. Explain the price move, likely macro/company drivers, valuation implications, risks and what I should learn from it.`)}`','`/advanced?prompt=${encodeURIComponent(`Analyze ${displayName} (${symbol}) over ${range}. Explain the price move, likely macro/company drivers, valuation implications, risks and what I should learn from it.`)}`','Markets Analyze with AI deep link')
 
+          # Legacy root component is unreachable after proxy redirect. Remove only its API navigation item, not its dead internal renderer.
           p=Path('app/page.tsx'); t=p.read_text()
-          t=t.replace('type Tab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room" | "API";','type Tab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room";',1)
           t=t.replace('const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];','const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room"];',1)
-          t=t.replace('  "Interview Room": "▻",\n  API: "⌘"','  "Interview Room": "▻"',1)
           p.write_text(t)
 
+          # Keep legacy ?open compatibility only in proxy. It consumes the ONE shared map and preserves context params.
           p=Path('proxy.ts'); t=p.read_text()
           t=t.replace('import { NextRequest, NextResponse } from "next/server";','import { NextRequest, NextResponse } from "next/server";\nimport { routeForNav } from "./app/navigation";',1)
           t,n=re.subn(r'\n  const open = searchParams\.get\("open"\);.*?return NextResponse\.redirect\(url\);','''
@@ -206,12 +214,37 @@ jobs:
           print('CF052_STATIC_ACTIVE_NAV=PASS')
           print('CF052_DEFERRED_NO_SIDEBAR=/markets,/practice/quick-math (owner-approved for CF-051)')
           PY
-      - run: npm install
       - run: npm run validate:content
-      - run: npm run typecheck
+      - name: Verify no new TypeScript errors
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck > /tmp/ts-after.txt 2>&1
+          AFTER_CODE=$?
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def norm(path):
+              out=set()
+              rx=re.compile(r'^([^\s(]+)\(\d+,\d+\): error (TS\d+): (.*)$')
+              for line in Path(path).read_text().splitlines():
+                  m=rx.match(line)
+                  if m: out.add(f'{m.group(1)}|{m.group(2)}|{m.group(3)}')
+              return out
+          before=norm('/tmp/ts-before.txt'); after=norm('/tmp/ts-after.txt')
+          new=sorted(after-before); resolved=sorted(before-after)
+          print('CF052_TSC_BASELINE_ERRORS',len(before))
+          print('CF052_TSC_AFTER_ERRORS',len(after))
+          print('CF052_TSC_NEW_ERRORS',len(new))
+          for x in new: print('NEW_TS_ERROR',x)
+          print('CF052_TSC_RESOLVED_ERRORS',len(resolved))
+          if new: raise SystemExit('BLOCKED: CF-052 introduced new TypeScript errors')
+          print('CF052_TSC_REGRESSION_CHECK=PASS')
+          PY
       - run: npm run build
+      - run: git diff --check
       - name: Commit approved CF-052 source changes
-        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
