@@ -14,10 +14,11 @@ export async function readProxyAuth(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const cookieWrites: CookieWrite[] = [];
+  const hadAuthCookie = request.cookies.getAll().some(({ name }) => name.startsWith("sb-") && name.includes("auth-token"));
   let response = NextResponse.next({ request });
 
   if (!url || !key) {
-    return { response, cookieWrites, user: null, profile: null as ProxyProfile | null };
+    return { response, cookieWrites, user: null, profile: null as ProxyProfile | null, hadAuthCookie };
   }
 
   const supabase = createServerClient(url, key, {
@@ -50,7 +51,7 @@ export async function readProxyAuth(request: NextRequest) {
     profile = (data as ProxyProfile | null) ?? null;
   }
 
-  return { response, cookieWrites, user, profile };
+  return { response, cookieWrites, user, profile, hadAuthCookie };
 }
 
 export function applyProxyCookies(response: NextResponse, writes: CookieWrite[]) {
