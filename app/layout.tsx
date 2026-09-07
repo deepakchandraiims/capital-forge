@@ -6,6 +6,7 @@ import "./advanced-workstation.css";
 import "./interview.css";
 import "./knowledge-vault.css";
 import "./knowledge-dashboard.css";
+import "./auth.css";
 import NavRouteBridge from "./NavRouteBridge";
 import AuthProvider from "./AuthProvider";
 import { getAuthContext } from "../lib/auth/server";
