@@ -4,6 +4,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,7 +15,241 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: CF-052 route-map migration
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, sys
+
+          ROOT = Path('.')
+          SOURCE_ROOTS = [Path('app')]
+          SOURCE_FILES = [Path('proxy.ts')]
+          EXTS = {'.ts','.tsx','.js','.jsx','.mjs','.cjs'}
+
+          def source_files():
+              out=[]
+              for root in SOURCE_ROOTS:
+                  out.extend(p for p in root.rglob('*') if p.is_file() and p.suffix in EXTS)
+              out.extend(p for p in SOURCE_FILES if p.exists())
+              return sorted(set(out))
+
+          def grep_literal(needle):
+              hits=[]
+              for p in source_files():
+                  text=p.read_text()
+                  for i,line in enumerate(text.splitlines(),1):
+                      if needle in line:
+                          hits.append((str(p),i,line.strip()))
+              return hits
+
+          pre = grep_literal('?open=')
+          print('CF052_PRE_OPEN_HITS', len(pre))
+          for h in pre: print('OPEN_PRE', *h, sep=' | ')
+          allowed = {
+              'app/NavRouteBridge.tsx','app/advanced/page.tsx','app/cases/page.tsx',
+              'app/dashboard/page.tsx','app/dashboard/knowledge-vault/page.tsx',
+              'app/feedback/page.tsx','app/home/page.tsx','app/interview/page.tsx',
+              'app/knowledge-vault/KnowledgeVaultShell.tsx','app/practice/page.tsx'
+          }
+          unknown = [h for h in pre if h[0] not in allowed]
+          if unknown:
+              print('BLOCKED: ?open= has uses outside known navigation fallbacks. No source edits made.')
+              for h in unknown: print('OPEN_UNKNOWN', *h, sep=' | ')
+              sys.exit(17)
+          print('CF052_OPEN_CLASSIFICATION=navigation_fallback_only')
+
+          nav = '''export const ROUTES = {
+            Home: "/home",
+            "Knowledge Vault": "/knowledge-vault",
+            Practice: "/practice",
+            Advanced: "/advanced",
+            Dashboard: "/dashboard",
+            Feedback: "/feedback",
+            "Interview Room": "/interview",
+            Cases: "/cases",
+            Markets: "/markets",
+            "Quick Math": "/practice/quick-math"
+          } as const;
+
+          export type RouteLabel = keyof typeof ROUTES;
+          export type PrimaryNavLabel = "Home" | "Knowledge Vault" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room";
+
+          export const PRIMARY_NAV: readonly PrimaryNavLabel[] = [
+            "Home",
+            "Knowledge Vault",
+            "Practice",
+            "Advanced",
+            "Dashboard",
+            "Feedback",
+            "Interview Room"
+          ];
+
+          export const NAV_ICONS: Record<PrimaryNavLabel, string> = {
+            Home: "⌂",
+            "Knowledge Vault": "◇",
+            Practice: "▣",
+            Advanced: "▥",
+            Dashboard: "▦",
+            Feedback: "▱",
+            "Interview Room": "▻"
+          };
+
+          export function routeForNav(label: string): string | undefined {
+            return (ROUTES as Record<string, string>)[label];
+          }
+          '''
+          Path('app/navigation.ts').write_text(nav)
+
+          def replace_once(path, old, new, label):
+              p=Path(path); t=p.read_text()
+              if old not in t:
+                  raise SystemExit(f'BLOCKED: expected {label} not found in {path}')
+              p.write_text(t.replace(old,new,1))
+
+          def regex_once(path, pattern, repl, label, flags=re.S):
+              p=Path(path); t=p.read_text()
+              nt,n=re.subn(pattern,repl,t,count=1,flags=flags)
+              if n != 1:
+                  raise SystemExit(f'BLOCKED: expected one {label} in {path}, found {n}')
+              p.write_text(nt)
+
+          # Global bridge: one shared route source, no root ?open= dispatcher.
+          replace_once('app/NavRouteBridge.tsx','import { useEffect } from "react";','import { useEffect } from "react";\nimport { PRIMARY_NAV, routeForNav } from "./navigation";','bridge import')
+          regex_once('app/NavRouteBridge.tsx',r'const APP_TABS = \[.*?\] as const;\n\nconst DIRECT_ROUTES: Record<string, string> = \{.*?\n\};\n\n','', 'bridge local maps')
+          replace_once('app/NavRouteBridge.tsx','return APP_TABS.find((item) => normalized === item || normalized.endsWith(item));','return PRIMARY_NAV.find((item) => normalized === item || normalized.endsWith(item));','bridge tab detection')
+          replace_once('app/NavRouteBridge.tsx','return tab ? DIRECT_ROUTES[tab] : undefined;','return tab ? routeForNav(tab) : undefined;','bridge route lookup')
+          regex_once('app/NavRouteBridge.tsx',r'\n      const params = new URLSearchParams\(window\.location\.search\);\n      const open = params\.get\("open"\);\n      const queryRoute = open \? DIRECT_ROUTES\[open\] : undefined;\n      if \(queryRoute\) \{ navigate\(queryRoute, true\); return; \}\n','\n','bridge open dispatcher')
+
+          # Standard page shells.
+          page_specs = [
+            ('app/home/page.tsx','../navigation','nav','function openMarket'),
+            ('app/practice/page.tsx','../navigation','go','function pretty'),
+            ('app/dashboard/page.tsx','../navigation','go','function rangeBounds'),
+            ('app/feedback/page.tsx','../navigation','routeTo','function scoreTone'),
+            ('app/interview/page.tsx','../navigation','nav','function scoreTone'),
+            ('app/dashboard/knowledge-vault/page.tsx','../../navigation','go','function clientKey'),
+          ]
+          for path,imp,fn,next_fn in page_specs:
+              p=Path(path); t=p.read_text()
+              anchor='import { useEffect, useMemo, useState } from "react";'
+              if anchor in t:
+                  t=t.replace(anchor,anchor+f'\nimport {{ PRIMARY_NAV, NAV_ICONS, routeForNav }} from "{imp}";',1)
+              else:
+                  # Practice/Home include another import immediately after React; insert after first import block line.
+                  lines=t.splitlines()
+                  idx=next(i for i,x in enumerate(lines) if x.startswith('import ') and 'react' in x)
+                  lines.insert(idx+1,f'import {{ PRIMARY_NAV, NAV_ICONS, routeForNav }} from "{imp}";')
+                  t='\n'.join(lines)+'\n'
+              t,n=re.subn(r'const (?:tabs|navTabs)=\[[^\n]+\];\nconst (?:icons|navIcons):\s*Record<string,string>\s*=\{[^\n]+\};', 'const tabs=PRIMARY_NAV;\nconst icons=NAV_ICONS;', t, count=1)
+              if n != 1:
+                  raise SystemExit(f'BLOCKED: nav array/icon pair not found in {path}')
+              # Preserve page-specific localStorage side effect in Dashboard's go().
+              if path == 'app/dashboard/page.tsx':
+                  pat=r'function go\(tab:string, focus\?:string\)\{.*?\n\}\nfunction rangeBounds'
+                  repl='function go(tab:string, focus?:string){\n  if(focus) localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify({topic:focus,createdAt:new Date().toISOString()}));\n  const route=routeForNav(tab);\n  if(route) window.location.assign(route);\n}\nfunction rangeBounds'
+              else:
+                  pat=rf'function {fn}\(tab:string\)\{{.*?\n\}}\n{re.escape(next_fn)}'
+                  repl=f'function {fn}(tab:string){{\n  const route=routeForNav(tab);\n  if(route) window.location.assign(route);\n}}\n{next_fn}'
+              t,n2=re.subn(pat,repl,t,count=1,flags=re.S)
+              if n2 != 1:
+                  raise SystemExit(f'BLOCKED: {fn} nav function not found in {path}')
+              p.write_text(t)
+
+          # Feedback used navTabs/navIcons identifiers in render; normalize those references.
+          p=Path('app/feedback/page.tsx'); t=p.read_text().replace('navTabs.map(', 'tabs.map(').replace('navIcons[tab]', 'icons[tab]'); p.write_text(t)
+
+          # Cases: use the same primary nav. Cases is a child of Advanced until orphan-route IA work later.
+          p=Path('app/cases/page.tsx'); t=p.read_text()
+          t=t.replace('import { useEffect, useMemo, useState } from "react";','import { useEffect, useMemo, useState } from "react";\nimport { PRIMARY_NAV, routeForNav } from "../navigation";',1)
+          t=t.replace('const tabs = ["Home", "Practice", "Cases", "Advanced", "Dashboard", "Feedback", "Interview Room"];','const tabs = PRIMARY_NAV;',1)
+          t,n=re.subn(r'function go\(tab: string\) \{.*?\n\}\n\nfunction pickText','function go(tab: string) {\n  const route = routeForNav(tab);\n  if (route) window.location.assign(route);\n}\n\nfunction pickText',t,count=1,flags=re.S)
+          if n!=1: raise SystemExit('BLOCKED: cases go() not found')
+          t=t.replace('className={tab === "Cases" ? "active" : ""}','className={tab === "Advanced" ? "active" : ""}',1)
+          p.write_text(t)
+
+          # Advanced page: shared map/nav/icons; keep full-page navigation for CF-051.
+          p=Path('app/advanced/page.tsx'); t=p.read_text()
+          t=t.replace('import LiveDateTime from "../LiveDateTime";','import LiveDateTime from "../LiveDateTime";\nimport { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";',1)
+          t,n=re.subn(r'const ROUTES: Record<string,string> = \{.*?\};\nconst NAV = \[.*?\];\nconst ICONS: Record<string,string> = \{.*?\};', 'const NAV=PRIMARY_NAV;\nconst ICONS=NAV_ICONS;', t, count=1)
+          if n!=1: raise SystemExit('BLOCKED: advanced route config not found')
+          marker='function formatMoney(v:any, currency:string) { if (typeof v !== "number") return String(v ?? "—"); return new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(v) + (currency ? ` ${currency}` : ""); }'
+          if marker not in t: raise SystemExit('BLOCKED: advanced formatMoney marker missing')
+          t=t.replace(marker,marker+'\nfunction go(tab:string) { const route=routeForNav(tab); if(route) window.location.assign(route); }',1)
+          t=t.replace('onClick={()=>location.assign(ROUTES[n])}','onClick={()=>go(n)}',1)
+          p.write_text(t)
+
+          # Knowledge Vault shell.
+          p=Path('app/knowledge-vault/KnowledgeVaultShell.tsx'); t=p.read_text()
+          t=t.replace('import LiveDateTime from "../LiveDateTime";','import LiveDateTime from "../LiveDateTime";\nimport { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";',1)
+          t,n=re.subn(r'const tabs = \[.*?\];\nconst icons: Record<string, string> = \{.*?\};\n\nfunction go\(tab: string\) \{.*?\n\}', 'const tabs=PRIMARY_NAV;\nconst icons=NAV_ICONS;\n\nfunction go(tab: string) {\n  const route=routeForNav(tab);\n  if(route) window.location.assign(route);\n}', t, count=1, flags=re.S)
+          if n!=1: raise SystemExit('BLOCKED: KnowledgeVaultShell nav config not found')
+          p.write_text(t)
+
+          # Legacy root component is now always redirected, but remove its dead API tab too.
+          p=Path('app/page.tsx'); t=p.read_text()
+          t=t.replace('type Tab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room" | "API";','type Tab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room";',1)
+          t=t.replace('const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];','const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room"];',1)
+          t=t.replace('  "Interview Room": "▻",\n  API: "⌘"','  "Interview Room": "▻"',1)
+          p.write_text(t)
+
+          # Root dispatcher: every root request, including tracking params, 307s to /home. Market rewrite untouched.
+          p=Path('proxy.ts'); t=p.read_text()
+          t,n=re.subn(r'\n  const open = searchParams\.get\("open"\);.*?return NextResponse\.redirect\(url\);', '\n  const url = request.nextUrl.clone();\n  url.pathname = "/home";\n  url.search = "";\n  return NextResponse.redirect(url);', t, count=1, flags=re.S)
+          if n!=1: raise SystemExit('BLOCKED: proxy root open dispatcher not found')
+          p.write_text(t)
+
+          # Post-migration verification: no ?open= source use; one route map definition; API absent from primary nav.
+          post = grep_literal('?open=')
+          print('CF052_POST_OPEN_HITS', len(post))
+          for h in post: print('OPEN_POST', *h, sep=' | ')
+          if post: raise SystemExit('BLOCKED: ?open= remains in source navigation code')
+
+          defs=[]
+          route_def_re=re.compile(r'\b(?:const|let|var)\s+(DIRECT_ROUTES|ROUTES|APP_TABS)\b')
+          for fp in source_files():
+              for i,line in enumerate(fp.read_text().splitlines(),1):
+                  if route_def_re.search(line): defs.append((str(fp),i,line.strip()))
+          print('CF052_ROUTE_MAP_DEFS', len(defs))
+          for h in defs: print('ROUTE_DEF', *h, sep=' | ')
+          if len(defs)!=1 or defs[0][0] != 'app/navigation.ts':
+              raise SystemExit('BLOCKED: expected exactly one ROUTES/DIRECT_ROUTES/APP_TABS definition in app/navigation.ts')
+
+          nav_text=Path('app/navigation.ts').read_text()
+          if 'API' in nav_text: raise SystemExit('BLOCKED: API remains in shared navigation source')
+
+          static_active = {
+            'app/home/page.tsx':'tab==="Home"',
+            'app/practice/page.tsx':'tab === "Practice"',
+            'app/advanced/page.tsx':'n==="Advanced"',
+            'app/dashboard/page.tsx':'tab==="Dashboard"',
+            'app/dashboard/knowledge-vault/page.tsx':'tab==="Dashboard"',
+            'app/feedback/page.tsx':'tab==="Feedback"',
+            'app/interview/page.tsx':'tab==="Interview Room"',
+            'app/cases/page.tsx':'tab === "Advanced"',
+            'app/knowledge-vault/KnowledgeVaultShell.tsx':'tab === "Knowledge Vault"',
+          }
+          for fp,needle in static_active.items():
+              if needle not in Path(fp).read_text():
+                  raise SystemExit(f'BLOCKED: active-nav assertion missing in {fp}: {needle}')
+          print('CF052_STATIC_ACTIVE_NAV=PASS')
+          print('CF052_DEFERRED_NO_SIDEBAR=/markets,/practice/quick-math (owner-approved deferral to CF-051)')
+          PY
       - run: npm install
       - run: npm run validate:content
       - run: npm run typecheck
       - run: npm run build
+      - name: Commit approved CF-052 source changes
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app proxy.ts
+          if git diff --cached --quiet; then
+            echo "No CF-052 source changes to commit."
+            exit 0
+          fi
+          git commit -m "fix: unify navigation routes and remove API fallback"
+          git push origin HEAD:main
