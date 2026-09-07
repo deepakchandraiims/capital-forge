@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
+import { profileDisplayName, profileInitials, useAuthProfile } from "../AuthProvider";
 
 type InterviewType = "Technical" | "Behavioral" | "Case" | "Industry-Specific";
 type AnswerMode = "Voice" | "Text" | "Hybrid";
@@ -46,18 +47,11 @@ const tabs=PRIMARY_NAV;
 const icons=NAV_ICONS;
 const SESSION_KEY = "capital-forge-interview-sessions-v1";
 const SETTINGS_KEY = "capital-forge-interview-settings-v1";
+const ACTIVE_KEY = "capital-forge-active-interview-v1";
 
 const defaultSettings: InterviewSettings = {
   answerMode:"Hybrid", microphone:"Default microphone", camera:"Off", interviewerVoice:"Professional", pace:"Normal", followUpIntensity:"Challenging", feedbackTiming:"End only", thinkingTime:"15s", answerTimer:"On", transcript:"Show", adaptiveDifficulty:"On", hints:"Optional", language:"English"
 };
-
-const referenceSessions: Session[] = [
-  {id:"demo-ib-tech",title:"Investment Banking – Technical",interviewType:"Technical",careerTrack:"Investment Banking",duration:30,difficulty:"Intermediate",questionMix:"Technical Heavy",createdAt:"2026-09-04T10:00:00.000Z",completedAt:"Sep 4, 2026",status:"FEEDBACK_READY",overallScore:85,technicalScore:88,behavioralScore:78,caseScore:74,communicationScore:82},
-  {id:"demo-pe-beh",title:"Private Equity – Behavioral",interviewType:"Behavioral",careerTrack:"Private Equity",duration:45,difficulty:"Associate",questionMix:"Behavioral Heavy",createdAt:"2026-09-02T10:00:00.000Z",completedAt:"Sep 2, 2026",status:"FEEDBACK_READY",overallScore:78,technicalScore:80,behavioralScore:82,caseScore:70,communicationScore:79},
-  {id:"demo-ma-case",title:"M&A Case Interview",interviewType:"Case",careerTrack:"Investment Banking",duration:40,difficulty:"Hard",questionMix:"Case Heavy",createdAt:"2026-08-28T10:00:00.000Z",completedAt:"Aug 28, 2026",status:"FEEDBACK_READY",overallScore:72,technicalScore:76,behavioralScore:68,caseScore:72,communicationScore:74},
-  {id:"demo-st-tech",title:"Sales & Trading – Technical",interviewType:"Technical",careerTrack:"Sales & Trading",duration:30,difficulty:"Advanced",questionMix:"Rapid Fire",createdAt:"2026-08-25T10:00:00.000Z",completedAt:"Aug 25, 2026",status:"FEEDBACK_READY",overallScore:88,technicalScore:91,behavioralScore:76,caseScore:78,communicationScore:87},
-  {id:"demo-general-beh",title:"General Behavioral",interviewType:"Behavioral",careerTrack:"General Finance",duration:25,difficulty:"Intermediate",questionMix:"Behavioral Heavy",createdAt:"2026-08-20T10:00:00.000Z",completedAt:"Aug 20, 2026",status:"FEEDBACK_READY",overallScore:75,technicalScore:70,behavioralScore:79,caseScore:66,communicationScore:81}
-];
 
 const tracks = ["Investment Banking","Private Equity","Venture Capital","Private Credit","Equity Research","Hedge Funds","Sales & Trading","Capital Markets","Restructuring","Corporate Finance","FP&A","Strategy"];
 const durations = [10,15,20,30,45,60,90];
@@ -81,12 +75,17 @@ const tips = [
 
 function scoreTone(score:number){ return score>=80?"green":score>=75?"blue":"amber"; }
 function safeRead<T>(key:string, fallback:T):T{ try{ const raw=localStorage.getItem(key); return raw?JSON.parse(raw):fallback; }catch{return fallback;} }
+function saveAccountState(patch:Record<string,unknown>){return fetch("/api/user-progress",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"state",patch})}).catch(()=>null);}
 
 export default function InterviewRoomPage(){
   const router=useRouter();
+  const profile=useAuthProfile();
+  const displayName=profileDisplayName(profile);
+  const initials=profileInitials(profile);
   function nav(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [sessions,setSessions]=useState<Session[]>([]);
   const [settings,setSettings]=useState<InterviewSettings>(defaultSettings);
+  const [hydrated,setHydrated]=useState(false);
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [scheduleOpen,setScheduleOpen]=useState(false);
   const [resourceOpen,setResourceOpen]=useState<null|"scenarios"|"questions"|"resources"|"analytics">(null);
@@ -99,24 +98,36 @@ export default function InterviewRoomPage(){
 
   useEffect(()=>{
     const storedSessions=safeRead<Session[]>(SESSION_KEY,[]);
-    const next=storedSessions.length?storedSessions:referenceSessions;
-    setSessions(next);
-    if(!storedSessions.length) localStorage.setItem(SESSION_KEY,JSON.stringify(referenceSessions));
-    setSettings(safeRead<InterviewSettings>(SETTINGS_KEY,defaultSettings));
+    const storedSettings=safeRead<InterviewSettings>(SETTINGS_KEY,defaultSettings);
+    setSessions(Array.isArray(storedSessions)?storedSessions:[]);
+    setSettings(storedSettings||defaultSettings);
+    fetch("/api/user-progress",{cache:"no-store"}).then(r=>r.json()).then(data=>{
+      if(!data?.ok)return;
+      if(Array.isArray(data.state?.interviewSessions))setSessions(data.state.interviewSessions);
+      if(data.state?.interviewSettings&&typeof data.state.interviewSettings==="object")setSettings({...defaultSettings,...data.state.interviewSettings});
+    }).catch(()=>{}).finally(()=>setHydrated(true));
   },[]);
 
-  useEffect(()=>{ if(typeof window!=="undefined") localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings)); },[settings]);
+  useEffect(()=>{
+    if(!hydrated)return;
+    localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));
+    void saveAccountState({interviewSettings:settings});
+  },[settings,hydrated]);
 
   const completed=useMemo(()=>sessions.filter(s=>s.status==="COMPLETED"||s.status==="FEEDBACK_READY"),[sessions]);
   const performance=useMemo(()=>{
-    const base=completed.length?completed:referenceSessions;
-    const avg=(key:keyof Session,fallback:number)=>Math.round(base.reduce((sum,s)=>sum+Number(s[key]||fallback),0)/Math.max(1,base.length));
-    const technical=avg("technicalScore",82), behavioral=avg("behavioralScore",76), caseScore=avg("caseScore",71), communication=avg("communicationScore",80);
+    if(!completed.length)return {technical:0,behavioral:0,caseScore:0,communication:0,overall:0};
+    const avg=(key:keyof Session)=>Math.round(completed.reduce((sum,s)=>sum+Number(s[key]||0),0)/completed.length);
+    const technical=avg("technicalScore"), behavioral=avg("behavioralScore"), caseScore=avg("caseScore"), communication=avg("communicationScore");
     const overall=Math.round(technical*.30+behavioral*.20+caseScore*.25+communication*.25);
     return {technical,behavioral,caseScore,communication,overall};
   },[completed]);
 
-  function persistSessions(next:Session[]){ setSessions(next); localStorage.setItem(SESSION_KEY,JSON.stringify(next)); }
+  function persistSessions(next:Session[]){
+    setSessions(next);
+    localStorage.setItem(SESSION_KEY,JSON.stringify(next));
+    void saveAccountState({interviewSessions:next});
+  }
 
   function createSession(type?:InterviewType, overrides?:Partial<Session>){
     if(starting) return;
@@ -137,17 +148,19 @@ export default function InterviewRoomPage(){
       ...overrides
     };
     persistSessions([session,...sessions]);
-    localStorage.setItem("capital-forge-active-interview-v1",JSON.stringify({id,settings,createdAt:new Date().toISOString()}));
+    const active={id,settings,createdAt:new Date().toISOString()};
+    localStorage.setItem(ACTIVE_KEY,JSON.stringify(active));
+    void saveAccountState({activeInterview:active});
     router.push(`/interview/session/${id}`);
   }
 
-  const recent=(sessions.length?sessions:referenceSessions).slice(0,5);
+  const recent=sessions.slice(0,5);
 
   return <div className="ir-app">
     <header className="ir-header">
       <div className="ir-brand"><div className="ir-brand-mark">CF</div><div><b>Capital Forge</b><small>Master Finance. Build Your Future.</small></div></div>
       <div className="ir-search"><span>⌕</span><input placeholder="Search for questions, companies, or interview topics..."/><kbd>⌘ K</kbd></div>
-      <button className="ir-ai" onClick={()=>nav("Advanced")}>✦ AI Assistant</button><button className="ir-bell">♧<i/></button><div className="ir-profile"><div className="ir-avatar">DC</div><div><b>Deepak</b><small>Pro Plan</small></div><span>⌄</span></div>
+      <button className="ir-ai" onClick={()=>nav("Advanced")}>✦ AI Assistant</button><button className="ir-bell">♧<i/></button><button className="ir-profile" onClick={()=>router.push("/account")}><div className="ir-avatar">{initials}</div><div><b>{displayName}</b><small>Capital Forge</small></div><span>⌄</span></button>
     </header>
 
     <aside className="ir-sidebar">
@@ -183,7 +196,7 @@ export default function InterviewRoomPage(){
         <aside className="ir-rail">
           <section className="ir-rail-card ir-performance"><div className="ir-rail-head"><h3>Interview Performance</h3><button onClick={()=>setResourceOpen("analytics")}>View Details →</button></div><div className="ir-performance-body"><div className="ir-donut" style={{background:`conic-gradient(#0875fa 0 25%,#7839ee 25% 50%,#f0444d 50% 72%,#12b76a 72% 100%)`}}><div><b>{performance.overall}%</b><span>Overall Score</span></div></div><div className="ir-perf-list"><Perf tone="blue" label="Technical" value={performance.technical}/><Perf tone="purple" label="Behavioral" value={performance.behavioral}/><Perf tone="red" label="Case" value={performance.caseScore}/><Perf tone="green" label="Communication" value={performance.communication}/></div></div></section>
 
-          <section className="ir-rail-card ir-recent"><div className="ir-rail-head"><h3>Recent Interview Sessions</h3><button onClick={()=>setResourceOpen("analytics")}>View All →</button></div><div className="ir-session-list">{recent.map((s,i)=><button key={s.id} onClick={()=>router.push(`/interview/session/${s.id}/results`)}><span className={`ir-session-icon c${i%4}`}>{s.interviewType==="Technical"?"▣":s.interviewType==="Behavioral"?"♟":s.interviewType==="Case"?"◕":"▥"}</span><div><b>{s.title}</b><small>{s.completedAt||new Date(s.createdAt).toLocaleDateString()} • {s.duration} min</small></div><strong className={scoreTone(s.overallScore||0)}>{s.overallScore??"—"}%</strong><i>›</i></button>)}</div></section>
+          <section className="ir-rail-card ir-recent"><div className="ir-rail-head"><h3>Recent Interview Sessions</h3><button onClick={()=>setResourceOpen("analytics")}>View All →</button></div>{recent.length?<div className="ir-session-list">{recent.map((s,i)=><button key={s.id} onClick={()=>router.push(`/interview/session/${s.id}/results`)}><span className={`ir-session-icon c${i%4}`}>{s.interviewType==="Technical"?"▣":s.interviewType==="Behavioral"?"♟":s.interviewType==="Case"?"◕":"▥"}</span><div><b>{s.title}</b><small>{s.completedAt||new Date(s.createdAt).toLocaleDateString()} • {s.duration} min</small></div><strong className={scoreTone(s.overallScore||0)}>{s.overallScore??"—"}{s.overallScore==null?"":"%"}</strong><i>›</i></button>)}</div>:<p style={{padding:16,color:"#7a8497"}}>No interview sessions yet. Your completed sessions will appear here.</p>}</section>
 
           <section className="ir-rail-card ir-quick"><h3>Quick Actions</h3><div><button onClick={()=>createSession()}><span>▣</span><small>Start<br/>Interview</small></button><button onClick={()=>setResourceOpen("questions")}><span>▤</span><small>View<br/>Question Bank</small></button><button onClick={()=>setResourceOpen("resources")}><span>▥</span><small>Prep<br/>Resources</small></button><button onClick={()=>setScheduleOpen(true)}><span>▦</span><small>Schedule<br/>Practice</small></button></div></section>
 
