@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 
 type FeedbackType = "Practice" | "Advanced" | "Interview" | "Assignment";
@@ -68,13 +69,11 @@ const improvementAreas = [
   {name:"Market Knowledge",priority:38,tone:"gray"}
 ];
 
-function routeTo(tab:string){
-  const route=routeForNav(tab);
-  if(route) window.location.assign(route);
-}
 function scoreTone(score:number){ return score>=75?"green":score>=60?"amber":"red"; }
 
 export default function FeedbackPage(){
+  const router=useRouter();
+  function routeTo(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [range,setRange]=useState<RangeKey>("Last 30 Days");
   const [activeTab,setActiveTab]=useState<TabKey>("All Feedback");
   const [contentType,setContentType]=useState("All");

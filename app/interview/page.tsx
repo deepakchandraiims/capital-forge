@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 
 type InterviewType = "Technical" | "Behavioral" | "Case" | "Industry-Specific";
@@ -78,14 +79,12 @@ const tips = [
   "Practice with a timer"
 ];
 
-function nav(tab:string){
-  const route=routeForNav(tab);
-  if(route) window.location.assign(route);
-}
 function scoreTone(score:number){ return score>=80?"green":score>=75?"blue":"amber"; }
 function safeRead<T>(key:string, fallback:T):T{ try{ const raw=localStorage.getItem(key); return raw?JSON.parse(raw):fallback; }catch{return fallback;} }
 
 export default function InterviewRoomPage(){
+  const router=useRouter();
+  function nav(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [sessions,setSessions]=useState<Session[]>([]);
   const [settings,setSettings]=useState<InterviewSettings>(defaultSettings);
   const [settingsOpen,setSettingsOpen]=useState(false);
@@ -139,7 +138,7 @@ export default function InterviewRoomPage(){
     };
     persistSessions([session,...sessions]);
     localStorage.setItem("capital-forge-active-interview-v1",JSON.stringify({id,settings,createdAt:new Date().toISOString()}));
-    window.location.assign(`/interview/session/${id}`);
+    router.push(`/interview/session/${id}`);
   }
 
   const recent=(sessions.length?sessions:referenceSessions).slice(0,5);
@@ -184,7 +183,7 @@ export default function InterviewRoomPage(){
         <aside className="ir-rail">
           <section className="ir-rail-card ir-performance"><div className="ir-rail-head"><h3>Interview Performance</h3><button onClick={()=>setResourceOpen("analytics")}>View Details →</button></div><div className="ir-performance-body"><div className="ir-donut" style={{background:`conic-gradient(#0875fa 0 25%,#7839ee 25% 50%,#f0444d 50% 72%,#12b76a 72% 100%)`}}><div><b>{performance.overall}%</b><span>Overall Score</span></div></div><div className="ir-perf-list"><Perf tone="blue" label="Technical" value={performance.technical}/><Perf tone="purple" label="Behavioral" value={performance.behavioral}/><Perf tone="red" label="Case" value={performance.caseScore}/><Perf tone="green" label="Communication" value={performance.communication}/></div></div></section>
 
-          <section className="ir-rail-card ir-recent"><div className="ir-rail-head"><h3>Recent Interview Sessions</h3><button onClick={()=>setResourceOpen("analytics")}>View All →</button></div><div className="ir-session-list">{recent.map((s,i)=><button key={s.id} onClick={()=>window.location.assign(`/interview/session/${s.id}/results`)}><span className={`ir-session-icon c${i%4}`}>{s.interviewType==="Technical"?"▣":s.interviewType==="Behavioral"?"♟":s.interviewType==="Case"?"◕":"▥"}</span><div><b>{s.title}</b><small>{s.completedAt||new Date(s.createdAt).toLocaleDateString()} • {s.duration} min</small></div><strong className={scoreTone(s.overallScore||0)}>{s.overallScore??"—"}%</strong><i>›</i></button>)}</div></section>
+          <section className="ir-rail-card ir-recent"><div className="ir-rail-head"><h3>Recent Interview Sessions</h3><button onClick={()=>setResourceOpen("analytics")}>View All →</button></div><div className="ir-session-list">{recent.map((s,i)=><button key={s.id} onClick={()=>router.push(`/interview/session/${s.id}/results`)}><span className={`ir-session-icon c${i%4}`}>{s.interviewType==="Technical"?"▣":s.interviewType==="Behavioral"?"♟":s.interviewType==="Case"?"◕":"▥"}</span><div><b>{s.title}</b><small>{s.completedAt||new Date(s.createdAt).toLocaleDateString()} • {s.duration} min</small></div><strong className={scoreTone(s.overallScore||0)}>{s.overallScore??"—"}%</strong><i>›</i></button>)}</div></section>
 
           <section className="ir-rail-card ir-quick"><h3>Quick Actions</h3><div><button onClick={()=>createSession()}><span>▣</span><small>Start<br/>Interview</small></button><button onClick={()=>setResourceOpen("questions")}><span>▤</span><small>View<br/>Question Bank</small></button><button onClick={()=>setResourceOpen("resources")}><span>▥</span><small>Prep<br/>Resources</small></button><button onClick={()=>setScheduleOpen(true)}><span>▦</span><small>Schedule<br/>Practice</small></button></div></section>
 

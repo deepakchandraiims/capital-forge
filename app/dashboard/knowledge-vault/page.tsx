@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../../navigation";
 import LiveDateTime from "../../LiveDateTime";
 
@@ -10,10 +11,6 @@ const universeOrder=["Technicals","Market History","Legendary Trades & Deals","C
 const universeTotals:Record<string,number>={"Technicals":1200,"Market History":480,"Legendary Trades & Deals":600,"Crises & Events":480,"Finance Facts":240};
 const universeIcons:Record<string,string>={"Technicals":"▥","Market History":"▤","Legendary Trades & Deals":"▥","Crises & Events":"◎","Finance Facts":"◉"};
 
-function go(tab:string){
-  const route=routeForNav(tab);
-  if(route) window.location.assign(route);
-}
 function clientKey(){const k="capital-forge-kv-client-v1";let v=localStorage.getItem(k);if(!v){v=`cfkv-${crypto.randomUUID()}`;localStorage.setItem(k,v);}return v;}
 function asPercent(n:number,d:number){return d?Math.round((n/d)*100):0;}
 function ago(value?:string){if(!value)return "";const diff=Date.now()-new Date(value).getTime();const m=Math.max(0,Math.floor(diff/60000));if(m<1)return"just now";if(m<60)return `${m} min ago`;const h=Math.floor(m/60);if(h<24)return `${h} hr${h===1?"":"s"} ago`;const d=Math.floor(h/24);return `${d} day${d===1?"":"s"} ago`;}
@@ -27,6 +24,8 @@ type Category={name:string;slug:string;universe:string;count:number};
 const emptyAnalytics:Analytics={reviewed:0,mastered:0,recallAccuracy:0,reviewDue:0,savedResponses:0,streak:0,byUniverse:[],byCategory:[],sessions:[]};
 
 export default function KnowledgeVaultDashboard(){
+  const router=useRouter();
+  function go(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [a,setA]=useState<Analytics>(emptyAnalytics);
   const [recent,setRecent]=useState<Recent[]>([]);
   const [categories,setCategories]=useState<Category[]>([]);
@@ -95,7 +94,7 @@ export default function KnowledgeVaultDashboard(){
     <header className="dash-header"><div className="dash-brand"><div className="dash-brand-mark">CF</div><div><b>Capital Forge</b><small>Master Finance. Build Your Future.</small></div></div><div className="dash-header-mid"><div className="dash-search"><span>⌕</span><input placeholder="Search topics, companies, trades, events or concepts..."/><kbd>⌘ K</kbd></div></div><div className="dash-header-right"><LiveDateTime compact/><button className="dash-ai" onClick={()=>go("Advanced")}>✦ AI Assistant</button><div className="dash-profile"><div className="dash-avatar">DC</div><div><b>Deepak</b><small>Capital Forge</small></div><button className="dash-caret">⌄</button></div></div></header>
     <aside className="dash-sidebar"><nav className="dash-nav">{tabs.map(tab=><button key={tab} className={tab==="Dashboard"?"active":""} onClick={()=>tab==="Dashboard"?undefined:go(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="dash-upgrade"><h3>Knowledge Vault</h3><p>Your permanent finance memory system across 3,000 canonical learning objects.</p><button onClick={()=>go("Knowledge Vault")}>Continue Learning →</button></div><div className="dash-version">Capital Forge · Live Knowledge Analytics<br/>Actual timestamps · saved responses · real scores.</div></aside>
     <main className="dash-workspace"><div className="kv-dash-wrap">
-      <div className="kv-dashboard-switch"><button onClick={()=>window.location.assign("/dashboard")}>▥ &nbsp; Practice & Skills</button><button className="active">▣ &nbsp; Knowledge Vault</button></div>
+      <div className="kv-dashboard-switch"><button onClick={()=>router.push("/dashboard")}>▥ &nbsp; Practice & Skills</button><button className="active">▣ &nbsp; Knowledge Vault</button></div>
 
       <div className="kv-dash-title"><div><h1>Knowledge Vault Analytics</h1><p>Live progress from your saved responses, ratings, session scores and timestamps across 3,000 objects.</p>{notice&&<small style={{display:"block",marginTop:6,color:notice.startsWith("Reset complete")?"#138a63":"#c23b49",fontWeight:800}}>{notice}</small>}{serverTime&&<small style={{display:"block",marginTop:4,color:"#7b8798"}}>Last server sync: {new Date(serverTime).toLocaleString()}</small>}</div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={resetAllHistory} disabled={resetting} style={{height:38,padding:"0 13px",border:"1px solid #efc5ca",borderRadius:8,background:"#fff5f6",color:"#bf3344",fontWeight:800,cursor:"pointer"}}>{resetting?"Resetting…":"Reset All History"}</button><label className="kv-range">▣ <select value={rangeDays} onChange={e=>setRangeDays(Number(e.target.value))}><option value={7}>Last 7 Days</option><option value={30}>Last 30 Days</option><option value={90}>Last 90 Days</option></select></label></div></div>
 
@@ -116,20 +115,20 @@ export default function KnowledgeVaultDashboard(){
           </div>
 
           <div className="kv-lower-grid">
-            <section className="kv-dash-card kv-heat-card"><div className="kv-dash-head"><h3>Universe Mastery Heatmap</h3><div className="kv-legend"><span><i className="green"/>High (≥80%)</span><span><i className="amber"/>Medium (50–79%)</span><span><i className="red"/>Low (&lt;50%)</span></div></div>{categories.length?<div className="kv-universe-heatmap">{categoriesByUniverse.map(group=><div className="kv-heat-group" key={group.universe}><h4><span>{universeIcons[group.universe]}</span>{group.universe}</h4>{group.rows.map(c=>{const p=categoryProgress.get(c.name);const accuracy=p?.attempts?p.accuracy:null;const cls=accuracy===null?"none":accuracy>=80?"high":accuracy>=50?"medium":"low";return <button key={c.slug} onClick={()=>window.location.assign(`/knowledge-vault/category/${c.slug}`)}><span>{c.name}</span><i className={cls}/></button>})}</div>)}</div>:<p className="kv-dash-empty">Category analytics are temporarily unavailable.</p>}</section>
+            <section className="kv-dash-card kv-heat-card"><div className="kv-dash-head"><h3>Universe Mastery Heatmap</h3><div className="kv-legend"><span><i className="green"/>High (≥80%)</span><span><i className="amber"/>Medium (50–79%)</span><span><i className="red"/>Low (&lt;50%)</span></div></div>{categories.length?<div className="kv-universe-heatmap">{categoriesByUniverse.map(group=><div className="kv-heat-group" key={group.universe}><h4><span>{universeIcons[group.universe]}</span>{group.universe}</h4>{group.rows.map(c=>{const p=categoryProgress.get(c.name);const accuracy=p?.attempts?p.accuracy:null;const cls=accuracy===null?"none":accuracy>=80?"high":accuracy>=50?"medium":"low";return <button key={c.slug} onClick={()=>router.push(`/knowledge-vault/category/${c.slug}`)}><span>{c.name}</span><i className={cls}/></button>})}</div>)}</div>:<p className="kv-dash-empty">Category analytics are temporarily unavailable.</p>}</section>
 
-            <section className="kv-dash-card kv-recent-card"><div className="kv-dash-head"><h3>Recent Vault Activity</h3><button onClick={()=>window.location.assign("/knowledge-vault/saved?kind=recent")}>View All →</button></div>{recent.length?<div className="kv-recent-list">{recent.slice(0,5).map((r,i)=><button key={r.id} onClick={()=>window.location.assign(`/knowledge-vault/object/${r.id}`)}><span className={`event e${i%5}`}>{r.progress?.status==="mastered"?"✓":r.progress?.response_saved?"▤":r.progress?.last_result==="Again"?"↻":"▣"}</span><div><b>{r.progress?.response_saved?"Response saved":r.progress?.status==="mastered"?"Mastered":r.progress?.last_result?`Reviewed: ${r.progress.last_result}`:"Reviewed"}: {r.title}</b><small>{r.universe} · {r.category}{r.progress?.user_response?` · “${r.progress.user_response.slice(0,70)}${r.progress.user_response.length>70?"…":""}”`:""}</small></div><em>{ago(r.progress?.solved_at||r.progress?.last_seen_at)}</em></button>)}</div>:<p className="kv-dash-empty">Your first solved object or saved response will appear here immediately.</p>}</section>
+            <section className="kv-dash-card kv-recent-card"><div className="kv-dash-head"><h3>Recent Vault Activity</h3><button onClick={()=>router.push("/knowledge-vault/saved?kind=recent")}>View All →</button></div>{recent.length?<div className="kv-recent-list">{recent.slice(0,5).map((r,i)=><button key={r.id} onClick={()=>router.push(`/knowledge-vault/object/${r.id}`)}><span className={`event e${i%5}`}>{r.progress?.status==="mastered"?"✓":r.progress?.response_saved?"▤":r.progress?.last_result==="Again"?"↻":"▣"}</span><div><b>{r.progress?.response_saved?"Response saved":r.progress?.status==="mastered"?"Mastered":r.progress?.last_result?`Reviewed: ${r.progress.last_result}`:"Reviewed"}: {r.title}</b><small>{r.universe} · {r.category}{r.progress?.user_response?` · “${r.progress.user_response.slice(0,70)}${r.progress.user_response.length>70?"…":""}”`:""}</small></div><em>{ago(r.progress?.solved_at||r.progress?.last_seen_at)}</em></button>)}</div>:<p className="kv-dash-empty">Your first solved object or saved response will appear here immediately.</p>}</section>
           </div>
 
-          <div className="kv-continue"><span>✦</span><div><b>Keep going! You’re {completion}% through the Knowledge Vault.</b><p>Every rating and saved response updates this dashboard from real activity.</p></div><button onClick={()=>window.location.assign("/knowledge-vault/quick-scan")}>Continue Learning →</button></div>
+          <div className="kv-continue"><span>✦</span><div><b>Keep going! You’re {completion}% through the Knowledge Vault.</b><p>Every rating and saved response updates this dashboard from real activity.</p></div><button onClick={()=>router.push("/knowledge-vault/quick-scan")}>Continue Learning →</button></div>
         </div>
 
         <aside className="kv-right-column">
           <section className="kv-dash-card kv-activity-card"><div className="kv-dash-head"><h3>Learning Activity</h3><span>{rangeDays} days</span></div><div className="kv-donut-wrap"><div className="kv-donut" style={{background:donutStops}}><div><b>{sessionTotal}</b><small>Sessions</small></div></div><div className="kv-donut-legend">{modeRows.map((x,i)=><div key={x.name}><i className={`c${i}`}/><span>{x.name}</span><b>{x.count}</b><em>{sessionTotal?`(${Math.round(x.count/sessionTotal*100)}%)`:"(0%)"}</em></div>)}</div></div><div className="kv-activity-foot"><span>{minutes} min studied</span><span>{sessions.length} recorded sessions</span></div></section>
 
-          <section className="kv-dash-card kv-rank-card"><div className="kv-dash-head"><h3>Strongest Categories</h3><button onClick={()=>window.location.assign("/knowledge-vault/learn")}>View All →</button></div><Rank rows={strong} kind="strong"/></section>
+          <section className="kv-dash-card kv-rank-card"><div className="kv-dash-head"><h3>Strongest Categories</h3><button onClick={()=>router.push("/knowledge-vault/learn")}>View All →</button></div><Rank rows={strong} kind="strong"/></section>
 
-          <section className="kv-dash-card kv-rank-card"><div className="kv-dash-head"><h3>Needs Review</h3><button onClick={()=>window.location.assign("/knowledge-vault/quick-scan?review=1")}>View All →</button></div><Rank rows={weak} kind="weak"/></section>
+          <section className="kv-dash-card kv-rank-card"><div className="kv-dash-head"><h3>Needs Review</h3><button onClick={()=>router.push("/knowledge-vault/quick-scan?review=1")}>View All →</button></div><Rank rows={weak} kind="weak"/></section>
 
           <section className="kv-dash-card kv-goal-card"><div className="kv-goal-icon">◎</div><div className="kv-goal-copy"><h3>{goal?"Learning Goal":"Set a Learning Goal"}</h3>{goal?<p><b>{goal.target}</b> objects per {goal.period}. Keep the cadence going.</p>:<p>Create a goal to stay focused and track your progress.</p>}{goalOpen?<div className="kv-goal-form"><select value={goalTarget} onChange={e=>setGoalTarget(Number(e.target.value))}><option value={25}>25 objects</option><option value={50}>50 objects</option><option value={100}>100 objects</option><option value={250}>250 objects</option></select><select value={goalPeriod} onChange={e=>setGoalPeriod(e.target.value)}><option value="week">Per week</option><option value="month">Per month</option></select><button onClick={createGoal}>Save Goal</button></div>:<button onClick={()=>setGoalOpen(true)}>{goal?"Change Goal":"Create Goal"} →</button>}</div></section>
         </aside>

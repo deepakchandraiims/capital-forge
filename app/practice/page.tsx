@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import LiveDateTime from "../LiveDateTime";
 import styles from "./practice.module.css";
@@ -35,10 +36,6 @@ const ATTEMPT_STORE = "capital-forge-canonical-practice-v1";
 const tabs=PRIMARY_NAV;
 const icons=NAV_ICONS;
 
-function go(tab:string){
-  const route=routeForNav(tab);
-  if(route) window.location.assign(route);
-}
 function pretty(value?: string | null) {
   if (!value) return "Question";
   return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
@@ -73,6 +70,8 @@ function iconFor(name: string) {
 }
 
 export default function PracticePage() {
+  const router=useRouter();
+  function go(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [questions, setQuestions] = useState<PracticeQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -280,7 +279,7 @@ export default function PracticePage() {
 
     <aside className={styles.sidebar}>
       <nav className={styles.nav}>{tabs.map((tab) => <button key={tab} className={tab === "Practice" ? styles.active : ""} onClick={() => go(tab)}>{icons[tab]} &nbsp;&nbsp; {tab}</button>)}</nav>
-      <div className={styles.sidebarFoot}><b>Canonical Content OS</b><p>Questions are quality-gated across modeling, valuation, M&A, LBO, PE, credit, accounting, Excel, markets and more.</p><button onClick={() => window.location.assign("/cases")}>Open Decision Cases →</button></div>
+      <div className={styles.sidebarFoot}><b>Canonical Content OS</b><p>Questions are quality-gated across modeling, valuation, M&A, LBO, PE, credit, accounting, Excel, markets and more.</p><button onClick={() => router.push("/cases")}>Open Decision Cases →</button></div>
       <div className={styles.version}>Capital Forge · Fast Catalog<br/>{questions.length || "—"} live practice questions</div>
     </aside>
 

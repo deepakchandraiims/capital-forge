@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import LiveDateTime from "../LiveDateTime";
 
@@ -19,11 +20,6 @@ function masteryTone(value:number){ if(value>=85)return"green"; if(value>=70)ret
 function safeParse(key:string){ try{ const raw=localStorage.getItem(key); return raw?JSON.parse(raw):null; }catch{return null;} }
 function attemptTime(a:Attempt){return a.at||a.createdAt||"";}
 function ago(value?:string){if(!value)return "";const diff=Math.max(0,Date.now()-new Date(value).getTime());const m=Math.floor(diff/60000);if(m<1)return"just now";if(m<60)return`${m} min ago`;const h=Math.floor(m/60);if(h<24)return`${h} hr${h===1?"":"s"} ago`;const d=Math.floor(h/24);return`${d} day${d===1?"":"s"} ago`;}
-function go(tab:string, focus?:string){
-  if(focus) localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify({topic:focus,createdAt:new Date().toISOString()}));
-  const route=routeForNav(tab);
-  if(route) window.location.assign(route);
-}
 function rangeBounds(range:RangeKey){
   const now=new Date();
   if(range==="All Time")return {start:0,end:Infinity};
@@ -35,6 +31,8 @@ function rangeBounds(range:RangeKey){
 }
 
 export default function DashboardPage(){
+  const router=useRouter();
+  function go(tab:string,focus?:string){if(focus)localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify({topic:focus,createdAt:new Date().toISOString()}));const route=routeForNav(tab);if(route)router.push(route);}
   const [range,setRange]=useState<RangeKey>("Last 30 Days");
   const [chartTab,setChartTab]=useState<ProgressTab>("Questions");
   const [attempts,setAttempts]=useState<Attempt[]>([]);
@@ -148,7 +146,7 @@ export default function DashboardPage(){
           <section className="dash-card dash-weak-card"><div className="dash-card-head"><h3>Weak Areas</h3><button onClick={()=>go("Practice")}>View Practice →</button></div>{weakAreas.length?<div className="dash-weak-list">{weakAreas.map(([name,value],i)=><div className="dash-weak-row" key={name}><span className={`dash-weak-icon ${i===0?"red":"amber"}`}>◎</span><span><b>{name}</b><small>Accuracy: {value}%</small></span><button onClick={()=>go("Practice",name)}>Practice →</button></div>)}</div>:<p style={{padding:18,color:"#7a8497"}}>No weak-area data yet.</p>}</section>
         </aside>
 
-        <section className="dash-recommendations"><div className="dash-reco-intro"><span className="dash-reco-bulb">💡</span><div><h3>Next Actions</h3><p>These links use your actual activity; no fake performance values are generated.</p></div></div><div className="dash-reco-cards"><Recommendation icon="▣" tone="blue" title={weakAreas[0]?`Practice ${weakAreas[0][0]}`:"Start your first practice set"} text={weakAreas[0]?`Current measured accuracy: ${weakAreas[0][1]}%`:"Create real dashboard data"} onClick={()=>go("Practice",weakAreas[0]?.[0])}/><Recommendation icon="◇" tone="purple" title="Open Knowledge Vault" text="Build long-term recall and saved-response history" onClick={()=>window.location.assign("/knowledge-vault")}/><Recommendation icon="♟" tone="blue" title="Practice Interview Questions" text="Add interview activity to your learning workflow" onClick={()=>go("Interview Room")}/></div></section>
+        <section className="dash-recommendations"><div className="dash-reco-intro"><span className="dash-reco-bulb">💡</span><div><h3>Next Actions</h3><p>These links use your actual activity; no fake performance values are generated.</p></div></div><div className="dash-reco-cards"><Recommendation icon="▣" tone="blue" title={weakAreas[0]?`Practice ${weakAreas[0][0]}`:"Start your first practice set"} text={weakAreas[0]?`Current measured accuracy: ${weakAreas[0][1]}%`:"Create real dashboard data"} onClick={()=>go("Practice",weakAreas[0]?.[0])}/><Recommendation icon="◇" tone="purple" title="Open Knowledge Vault" text="Build long-term recall and saved-response history" onClick={()=>router.push("/knowledge-vault")}/><Recommendation icon="♟" tone="blue" title="Practice Interview Questions" text="Add interview activity to your learning workflow" onClick={()=>go("Interview Room")}/></div></section>
       </div>
     </main>
 

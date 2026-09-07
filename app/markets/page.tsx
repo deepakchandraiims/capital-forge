@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import LiveDateTime from "../LiveDateTime";
+import SharedAppSidebar from "../SharedAppSidebar";
 
 type Quote = {
   symbol:string;
@@ -41,6 +43,7 @@ function chartPath(points:Point[],width=1000,height=390){
 }
 
 export default function MarketsPage(){
+  const router=useRouter();
   const [symbol,setSymbol]=useState("NIFTY:NSE");
   const [nameHint,setNameHint]=useState("NIFTY 50");
   const [range,setRange]=useState("1Y");
@@ -102,10 +105,11 @@ export default function MarketsPage(){
 
   return <div className="markets-app">
     <header className="markets-header">
-      <button className="markets-back" onClick={()=>window.location.assign("/home")}>← Home</button>
+      <button className="markets-back" onClick={()=>router.push("/home")}>← Home</button>
       <div className="markets-brand"><div>CF</div><span><b>Capital Forge Markets</b><small>Global asset explorer</small></span></div>
       <div className="markets-live"><LiveDateTime/></div>
     </header>
+    <SharedAppSidebar active="Home" title="Markets" note="Global market data, price history and finance learning links."/>
 
     <main className="markets-shell">
       <section className="markets-search-card">
@@ -135,7 +139,7 @@ export default function MarketsPage(){
       <section className="markets-bottom-grid">
         <div className="markets-card"><p>PERIOD SNAPSHOT</p><div className="markets-big-return"><span className={periodClass}>{periodPct==null?"—":`${periodPct>=0?"+":""}${periodPct.toFixed(2)}%`}</span><small>{range} price return</small></div><dl><div><dt>Start</dt><dd>{money(performance?.first,quote?.currency,symbol)}</dd></div><div><dt>Latest</dt><dd>{money(performance?.last,quote?.currency,symbol)}</dd></div><div><dt>Absolute move</dt><dd>{performance?.change==null?"—":money(performance.change,quote?.currency,symbol)}</dd></div></dl></div>
         <div className="markets-card"><p>LATEST OBSERVATION</p><dl><div><dt>Date / Time</dt><dd>{when(latest?.timestamp)}</dd></div><div><dt>Close</dt><dd>{money(latest?.close,quote?.currency,symbol)}</dd></div><div><dt>High</dt><dd>{money(latest?.high,quote?.currency,symbol)}</dd></div><div><dt>Low</dt><dd>{money(latest?.low,quote?.currency,symbol)}</dd></div><div><dt>Volume</dt><dd>{compact(latest?.volume)}</dd></div></dl></div>
-        <div className="markets-card learning"><p>LEARNING MODE</p><h3>Turn this market move into a finance drill</h3><small>Ask what changed in valuation, discount rates, risk appetite, earnings expectations or macro conditions.</small><button onClick={()=>window.location.assign(`/advanced?prompt=${encodeURIComponent(`Analyze ${displayName} (${symbol}) over ${range}. Explain the price move, likely macro/company drivers, valuation implications, risks and what I should learn from it.`)}`)}>✦ Analyze with AI</button></div>
+        <div className="markets-card learning"><p>LEARNING MODE</p><h3>Turn this market move into a finance drill</h3><small>Ask what changed in valuation, discount rates, risk appetite, earnings expectations or macro conditions.</small><button onClick={()=>router.push(`/advanced?prompt=${encodeURIComponent(`Analyze ${displayName} (${symbol}) over ${range}. Explain the price move, likely macro/company drivers, valuation implications, risks and what I should learn from it.`)}`)}>✦ Analyze with AI</button></div>
       </section>
     </main>
   </div>;

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import LiveDateTime from "../../LiveDateTime";
+import SharedAppSidebar from "../../SharedAppSidebar";
 import styles from "./quick-math.module.css";
 
 type MathQuestion = {
@@ -129,6 +131,7 @@ function displayAnswer(question: MathQuestion) {
 }
 
 export default function QuickMathPage() {
+  const router=useRouter();
   const [meta, setMeta] = useState<DatasetMeta>(EMPTY_META);
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [difficulty, setDifficulty] = useState(5);
@@ -266,12 +269,13 @@ export default function QuickMathPage() {
 
   return <div className={styles.shell}>
     <header className={styles.header}>
-      <button className={styles.brand} onClick={() => window.location.assign("/practice")}><span>CF</span><div><b>Capital Forge</b><small>Quick Mathematics</small></div></button>
+      <button className={styles.brand} onClick={() => router.push("/practice")}><span>CF</span><div><b>Capital Forge</b><small>Quick Mathematics</small></div></button>
       <div className={styles.headerTitle}><b>CANONICAL MENTAL MATH WORKSTATION</b><span>10,000 validated questions · 44 progressive levels · zero calculator dependence</span></div>
-      <div className={styles.headerActions}><LiveDateTime compact/><button onClick={() => window.location.assign("/practice")}>← Practice</button><button onClick={() => window.location.assign("/dashboard")}>Dashboard →</button></div>
+      <div className={styles.headerActions}><LiveDateTime compact/><button onClick={() => router.push("/practice")}>← Practice</button><button onClick={() => router.push("/dashboard")}>Dashboard →</button></div>
     </header>
+    <SharedAppSidebar active="Practice" title="Quick Mathematics" note="Mental speed training inside the Practice workstation."/>
 
-    <main className={styles.main}>
+    <main className={`${styles.main} cf-shell-main-with-sidebar`}>
       <section className={styles.hero}>
         <div><p>QUICK MATHEMATICS · CANONICAL DATABASE</p><h1>Make numbers automatic.</h1><span>Your uploaded 10,000-question bank is now the source of truth: raw arithmetic, percentages, roots, valuation, PE/IB math, leverage, IRR intuition, markets, modeling speed and extreme mental calculation.</span></div>
         <div className={styles.heroStats}><div><b>{meta.total.toLocaleString("en-IN")}</b><small>Validated Questions</small></div><div><b>{meta.levelCount}</b><small>Progressive Levels</small></div><div><b>10</b><small>Difficulty Bands</small></div></div>

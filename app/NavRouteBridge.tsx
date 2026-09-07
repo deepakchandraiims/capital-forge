@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, routeForNav } from "./navigation";
 
 function clean(text: string) {
@@ -19,14 +20,17 @@ function directRouteFor(label: string | null | undefined) {
 }
 
 export default function NavRouteBridge() {
+  const router=useRouter();
   useEffect(() => {
-    let redirecting = false;
+    let navigatingTo: string | null = null;
 
     const navigate = (route: string, replace = false) => {
-      if (redirecting || window.location.pathname === route) return;
-      redirecting = true;
-      if (replace) window.location.replace(route);
-      else window.location.assign(route);
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (navigatingTo === route || current === route || (window.location.pathname === route && !route.includes("?"))) return;
+      navigatingTo = route;
+      if (replace) router.replace(route);
+      else router.push(route);
+      window.setTimeout(() => { if (navigatingTo === route) navigatingTo = null; }, 120);
     };
 
     const ensureKnowledgeVaultNavigation = () => {
@@ -133,7 +137,7 @@ export default function NavRouteBridge() {
       ensureKnowledgeVaultNavigation();
       ensureQuickMathPracticeEntry();
       ensureDashboardSwitch();
-      if (redirecting || window.location.pathname !== "/") return;
+      if (window.location.pathname !== "/") return;
       const active = document.querySelector(".side-nav button.active, .pm-nav button.active, .dash-nav button.active, .feedback-nav button.active, .home-sidebar nav button.active, .ir-sidebar nav button.active") as HTMLButtonElement | null;
       const activeRoute = active ? directRouteFor(active.textContent || "") : undefined;
       if (activeRoute) navigate(activeRoute, true);
@@ -161,7 +165,7 @@ export default function NavRouteBridge() {
       observer.disconnect();
       window.clearInterval(guard);
     };
-  }, []);
+  }, [router]);
 
   return null;
 }

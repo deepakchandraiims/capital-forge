@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import LiveDateTime from "../LiveDateTime";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 
@@ -31,9 +32,10 @@ function getClientKey() {
   return v;
 }
 function formatMoney(v:any, currency:string) { if (typeof v !== "number") return String(v ?? "—"); return new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(v) + (currency ? ` ${currency}` : ""); }
-function go(tab:string) { const route=routeForNav(tab); if(route) window.location.assign(route); }
 
 export default function AdvancedPage() {
+  const router=useRouter();
+  function go(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [clientKey,setClientKey] = useState("");
   const [modules,setModules] = useState<Module[]>([]);
   const [dataset,setDataset] = useState({total:0,modules:0,objects_per_module:0});
@@ -97,7 +99,7 @@ export default function AdvancedPage() {
 
   return <div className="advx-app">
     <header className="advx-header">
-      <button className="advx-brand" onClick={()=>location.assign("/home")}><span>CF</span><div><b>Capital Forge</b><small>Advanced Professional Workstation</small></div></button>
+      <button className="advx-brand" onClick={()=>router.push("/home")}><span>CF</span><div><b>Capital Forge</b><small>Advanced Professional Workstation</small></div></button>
       <div className="advx-header-search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")submitSearch(e as any)}} placeholder="Search 6,250 advanced cases, models, judgments…"/><button onClick={()=>{setPage(1);setQuery(search.trim())}}>Search</button></div>
       <LiveDateTime />
     </header>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, routeForNav } from "../navigation";
 
 type CanonicalCase = Record<string, any> & {
@@ -25,10 +26,6 @@ type CanonicalCase = Record<string, any> & {
 
 const tabs = PRIMARY_NAV;
 
-function go(tab: string) {
-  const route = routeForNav(tab);
-  if (route) window.location.assign(route);
-}
 function pickText(item: CanonicalCase, keys: string[]) {
   for (const key of keys) {
     const value = item[key];
@@ -41,6 +38,8 @@ function answerOf(item: CanonicalCase) { return pickText(item, ["model_answer", 
 function label(value: unknown) { return String(value || "Case").replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase()); }
 
 export default function CasesPage() {
+  const router=useRouter();
+  function go(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [cases, setCases] = useState<CanonicalCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

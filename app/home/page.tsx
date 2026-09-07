@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import LiveDateTime from "../LiveDateTime";
 
@@ -63,15 +64,6 @@ const watchlist:Omit<MarketRow,"quote"|"status">[]=[
   {id:"nvda",label:"NVIDIA",symbol:"NVDA",market:"USA",kind:"STOCK"}
 ];
 
-function nav(tab:string){
-  const route=routeForNav(tab);
-  if(route) window.location.assign(route);
-}
-function openMarket(symbol:string,name?:string){
-  const params=new URLSearchParams({symbol});
-  if(name)params.set("name",name);
-  window.location.assign(`/markets?${params.toString()}`);
-}
 function ensureFive(items:NewsItem[]){
   const out=items.slice(0,5).map((x,i)=>({...x,imageUrl:x.imageUrl||fallbackImages[i]}));
   for(let i=out.length;i<5;i++) out.push({...fallback[i],id:`fill-${i}`});
@@ -89,6 +81,9 @@ function formatPrice(row:MarketRow){
 }
 
 export default function HomePage(){
+  const router=useRouter();
+  function nav(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
+  function openMarket(symbol:string,name?:string){const params=new URLSearchParams({symbol});if(name)params.set("name",name);router.push(`/markets?${params.toString()}`);}
   const [news,setNews]=useState<NewsItem[]>(fallback);
   const [busy,setBusy]=useState(false);
   const [caseBusy,setCaseBusy]=useState(false);
@@ -150,12 +145,12 @@ export default function HomePage(){
       <div className="home-profile"><div className="home-avatar">DC</div><div><b>Deepak</b><small>Keep Going!</small></div><span>⌄</span></div>
     </header>
 
-    <aside className="home-sidebar"><nav>{tabs.map(tab=><button key={tab} className={tab==="Home"?"active":""} onClick={()=>nav(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="home-upgrade"><h3>Canonical Content OS</h3><p>700 quality-gated learning objects across finance, investing and interviews.</p><button onClick={()=>window.location.assign("/cases")}>⚡ Open Decision Lab</button></div><div className="home-version">Capital Forge · Full Catalog<br/>Built for your best tomorrow.</div></aside>
+    <aside className="home-sidebar"><nav>{tabs.map(tab=><button key={tab} className={tab==="Home"?"active":""} onClick={()=>nav(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="home-upgrade"><h3>Canonical Content OS</h3><p>700 quality-gated learning objects across finance, investing and interviews.</p><button onClick={()=>router.push("/cases")}>⚡ Open Decision Lab</button></div><div className="home-version">Capital Forge · Full Catalog<br/>Built for your best tomorrow.</div></aside>
 
     <main className="home-workspace"><div className="home-grid"><section className="home-maincol">
       <section className="home-hero-card"><div className="home-hero-copy"><p className="home-eyebrow">AI-powered finance learning</p><h1>Welcome back, <span>Deepak!</span> 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="home-kpis"><Kpi label="AI Accuracy" value={`${accuracy}%`} tone="green"/><Kpi label="Questions Solved" value={String(attempts.length)} tone="blue"/><Kpi label="Study Time" value={`${studyHours}h`} tone="red"/></div></div><div className="home-hero-art"><div className="home-float f1">DCF</div><div className="home-float f2">LBO</div><div className="home-cube">AI</div></div></section>
       <section className="home-section news-section"><div className="home-section-head"><div><h2><i className="live-dot"/>Live News & Updates</h2><p>Curated insights from markets, AI, and global finance.</p></div><div className="home-refresh-wrap"><small>Last updated: {lastUpdated}</small><button onClick={refreshNews}>{busy?"Refreshing...":"↻ Refresh"}</button></div></div><div className="home-news-grid">{visible.map((item,i)=><article key={item.id}><div className="home-news-img" style={{backgroundImage:`url(${item.imageUrl||fallbackImages[i]})`}}/><div className="home-news-meta"><span className={item.tone||"blue"}>{item.tag}</span><small>{item.time}</small></div><h3>{item.title}</h3><p>{item.summary}</p><div className="home-news-foot"><small>{item.source||"Marketaux"}</small>{item.url?<a href={item.url} target="_blank" rel="noreferrer">Read →</a>:<span>Read →</span>}</div></article>)}</div></section>
-      <section className="home-section cases-section"><div className="home-section-head"><div><h2>📕 Canonical Decision Cases</h2><p>Cases from the 105-case decision set you uploaded and published.</p></div><div style={{display:"flex",gap:8}}><button onClick={refreshCases}>{caseBusy?"Loading...":"↻ Refresh Cases"}</button><button onClick={()=>window.location.assign("/cases")}>View All 110 →</button></div></div><div className="home-case-grid">{caseItems.map((c,i)=><article key={c.id}><div><span>{c.source_record_key||`Case ${i+1}`}</span><b>{c.domain_name||c.topic_name||"Decision Making"}</b></div><h3>{caseTitle(c)}</h3><p>{caseSummary(c)}</p><small>{difficultyLabel(c.difficulty)} · {c.seniority||"Investment Judgment"}</small><button onClick={()=>window.location.assign(`/cases?case=${encodeURIComponent(c.source_record_key||c.id)}`)}>Solve Now →</button></article>)}</div></section>
+      <section className="home-section cases-section"><div className="home-section-head"><div><h2>📕 Canonical Decision Cases</h2><p>Cases from the 105-case decision set you uploaded and published.</p></div><div style={{display:"flex",gap:8}}><button onClick={refreshCases}>{caseBusy?"Loading...":"↻ Refresh Cases"}</button><button onClick={()=>router.push("/cases")}>View All 110 →</button></div></div><div className="home-case-grid">{caseItems.map((c,i)=><article key={c.id}><div><span>{c.source_record_key||`Case ${i+1}`}</span><b>{c.domain_name||c.topic_name||"Decision Making"}</b></div><h3>{caseTitle(c)}</h3><p>{caseSummary(c)}</p><small>{difficultyLabel(c.difficulty)} · {c.seniority||"Investment Judgment"}</small><button onClick={()=>router.push(`/cases?case=${encodeURIComponent(c.source_record_key||c.id)}`)}>Solve Now →</button></article>)}</div></section>
     </section>
 
     <aside className="home-rail"><section className="home-market-card">

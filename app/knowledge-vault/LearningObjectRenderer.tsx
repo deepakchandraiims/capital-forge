@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Source = {
   id?: string;
@@ -24,6 +25,7 @@ function historicalLabel(content: Record<string, any>) {
 }
 
 export default function LearningObjectRenderer({ object, sources = [], compact = false }: { object: LearningObject; sources?: Source[]; compact?: boolean }) {
+  const router=useRouter();
   const [sourceOpen, setSourceOpen] = useState(false);
   const content = object.content && typeof object.content === "object" ? object.content : {};
   const universe = String(object.universe || "");
@@ -95,7 +97,7 @@ export default function LearningObjectRenderer({ object, sources = [], compact =
   const openAI = () => {
     const context = [object.title, object.category, object.topic, prompt].filter(Boolean).join(" | ");
     const aiPrompt = `Knowledge Vault context: ${context}. Explain this using the canonical object as the source of truth. Do not overwrite or invent the validated answer. Offer: explain simply, explain technically, interview follow-up, another example, challenge the answer, connect to a real deal, or quiz me.`;
-    window.location.assign(`/advanced?kvObject=${encodeURIComponent(object.id || object.source_record_key || "")}&prompt=${encodeURIComponent(aiPrompt)}`);
+    router.push(`/advanced?kvObject=${encodeURIComponent(object.id || object.source_record_key || "")}&prompt=${encodeURIComponent(aiPrompt)}`);
   };
 
   return <article className={`kv-object-renderer ${compact ? "compact" : ""}`}>
@@ -107,7 +109,7 @@ export default function LearningObjectRenderer({ object, sources = [], compact =
     <div className="kv-object-sections">{sections.filter(([, value]) => value).map(([label, value]) => <section key={label}><h3>{label}</h3><p>{value}</p></section>)}</div>
     {list(content.expected_points).length > 0 && <section className="kv-related-inline"><h3>What a strong answer should cover</h3><div>{list(content.expected_points).map((x: any) => <span key={String(x)}>{String(x)}</span>)}</div></section>}
     {list(content.related_formulas).length > 0 && <section className="kv-related-inline"><h3>Related formulas</h3><div>{list(content.related_formulas).map((x: any) => <span key={String(x)}>{String(x)}</span>)}</div></section>}
-    <div className="kv-object-actions"><button onClick={openAI}>✦ Ask AI</button><button onClick={() => window.location.assign(`/practice?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Practice This →</button><button onClick={() => window.location.assign(`/advanced?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Go Deeper →</button><button onClick={() => window.location.assign(`/interview?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Interview Me On This →</button></div>
+    <div className="kv-object-actions"><button onClick={openAI}>✦ Ask AI</button><button onClick={() => router.push(`/practice?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Practice This →</button><button onClick={() => router.push(`/advanced?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Go Deeper →</button><button onClick={() => router.push(`/interview?topic=${encodeURIComponent(object.topic || object.category || "")}`)}>Interview Me On This →</button></div>
     {sourceOpen && <div className="kv-source-overlay" onClick={() => setSourceOpen(false)}><aside onClick={(e) => e.stopPropagation()}><div className="kv-source-head"><div><small>Knowledge Vault</small><h2>Verified Source</h2></div><button onClick={() => setSourceOpen(false)}>×</button></div>{canonicalSources.length ? canonicalSources.map((s, i) => <section key={s.id || `${s.url || "source"}-${i}`}><b>{s.publisher || "Primary Source"}</b><h3>{s.title || "Source document"}</h3><dl><div><dt>Document Type</dt><dd>{s.source_type || "Primary source"}</dd></div><div><dt>Date</dt><dd>{s.document_date || "—"}</dd></div><div><dt>Authority Tier</dt><dd>{s.authority_tier ? `Tier ${s.authority_tier}` : "—"}</dd></div><div><dt>Relevant Fact / Section</dt><dd>{s.notes || object.source_metadata?.source_fact_or_section_used || "Canonical source linked to this object."}</dd></div></dl>{s.url && <a href={s.url} target="_blank" rel="noreferrer">View Source ↗</a>}</section>) : <p>Source-grounded object, but no external source metadata is available for this record.</p>}</aside></div>}
   </article>;
 }
