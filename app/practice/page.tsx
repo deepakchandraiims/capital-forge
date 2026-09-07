@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
+import { profileDisplayName, profileInitials, useAuthProfile } from "../AuthProvider";
 import LiveDateTime from "../LiveDateTime";
 import styles from "./practice.module.css";
 
@@ -27,12 +28,13 @@ type PracticeQuestion = {
   topic_slug?: string | null;
 };
 
-type Attempt = { id: string; correct: boolean | null; at: string; response?: string; savedResponse?: boolean; durationSeconds?: number; title?: string; category?: string };
+type Attempt = { id: string; correct: boolean | null; at: string; response?: string; savedResponse?: boolean; durationSeconds?: number; title?: string; category?: string; questionType?: string };
 type Mode = "all" | "recent" | "bookmarked" | "weak" | "custom";
 
 const PAGE_SIZE = 8;
 const CATALOG_CACHE = "capital-forge-practice-catalog-cache-v2";
 const ATTEMPT_STORE = "capital-forge-canonical-practice-v1";
+const BOOKMARK_STORE = "capital-forge-practice-bookmarks-v1";
 const tabs=PRIMARY_NAV;
 const icons=NAV_ICONS;
 
@@ -69,8 +71,20 @@ function iconFor(name: string) {
   return "▦";
 }
 
+function mergeAttempts(localRows: Attempt[], serverRows: Attempt[]) {
+  const map = new Map<string, Attempt>();
+  for (const row of [...localRows, ...serverRows]) {
+    const prev = map.get(row.id);
+    if (!prev || String(row.at || "") >= String(prev.at || "")) map.set(row.id, row);
+  }
+  return Array.from(map.values());
+}
+
 export default function PracticePage() {
   const router=useRouter();
+  const profile=useAuthProfile();
+  const displayName=profileDisplayName(profile);
+  const initials=profileInitials(profile);
   function go(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   const [questions, setQuestions] = useState<PracticeQuestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,11 +109,13 @@ export default function PracticePage() {
   const [toast, setToast] = useState("");
 
   useEffect(() => {
+    let localAttempts: Attempt[] = [];
+    let localBookmarks: string[] = [];
     try {
       const raw = localStorage.getItem(ATTEMPT_STORE);
-      if (raw) setAttempts(JSON.parse(raw));
-      const saved = localStorage.getItem("capital-forge-practice-bookmarks-v1");
-      if (saved) setBookmarks(JSON.parse(saved));
+      if (raw) { localAttempts = JSON.parse(raw); if (Array.isArray(localAttempts)) setAttempts(localAttempts); }
+      const saved = localStorage.getItem(BOOKMARK_STORE);
+      if (saved) { localBookmarks = JSON.parse(saved); if (Array.isArray(localBookmarks)) setBookmarks(localBookmarks); }
       const cached = sessionStorage.getItem(CATALOG_CACHE);
       if (cached) {
         const rows = JSON.parse(cached);
@@ -107,6 +123,17 @@ export default function PracticePage() {
       }
     } catch {}
     void loadQuestions();
+    void (async () => {
+      try {
+        const res = await fetch("/api/user-progress", { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok || !data.ok) return;
+        const serverAttempts = Array.isArray(data.attempts) ? data.attempts : [];
+        const serverBookmarks = Array.isArray(data.bookmarks) ? data.bookmarks : [];
+        setAttempts((current) => mergeAttempts(current.length ? current : localAttempts, serverAttempts));
+        setBookmarks(Array.from(new Set([...localBookmarks, ...serverBookmarks])));
+      } catch {}
+    })();
   }, []);
 
   useEffect(() => { setPage(1); }, [search, category, difficulty, questionType, time, subtopic, mode]);
@@ -199,6 +226,7 @@ export default function PracticePage() {
     const next = [...attempts.filter((a) => a.id !== nextAttempt.id), nextAttempt];
     setAttempts(next);
     try { localStorage.setItem(ATTEMPT_STORE, JSON.stringify(next)); } catch {}
+    fetch("/api/user-progress", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "saveAttempt", attempt: nextAttempt }) }).catch(() => {});
   }
 
   function saveAttempt(id: string, isCorrect: boolean | null, saveResponse = false) {
@@ -214,7 +242,8 @@ export default function PracticePage() {
       savedResponse: Boolean(saveResponse || current?.savedResponse),
       durationSeconds,
       title: selected?.question || current?.title,
-      category: selected ? categoryOf(selected) : current?.category
+      category: selected ? categoryOf(selected) : current?.category,
+      questionType: selected?.question_type || current?.questionType
     });
   }
 
@@ -228,9 +257,11 @@ export default function PracticePage() {
   }
 
   function toggleBookmark(id: string) {
-    const next = bookmarks.includes(id) ? bookmarks.filter((x) => x !== id) : [...bookmarks, id];
+    const value = !bookmarks.includes(id);
+    const next = value ? [...bookmarks, id] : bookmarks.filter((x) => x !== id);
     setBookmarks(next);
-    try { localStorage.setItem("capital-forge-practice-bookmarks-v1", JSON.stringify(next)); } catch {}
+    try { localStorage.setItem(BOOKMARK_STORE, JSON.stringify(next)); } catch {}
+    fetch("/api/user-progress", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "bookmark", questionId: id, value }) }).catch(() => {});
   }
 
   async function openQuestion(q: PracticeQuestion) {
@@ -274,7 +305,7 @@ export default function PracticePage() {
     <header className={styles.header}>
       <div className={styles.brand}><div className={styles.mark}>CF</div><div><b>Capital Forge</b><small>Master Finance. Build Your Edge.</small></div></div>
       <div className={styles.topSearch}>⌕<input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search questions, topics, companies, or keywords..." /></div>
-      <div className={styles.topActions}><LiveDateTime compact/><button className={styles.aiBtn} onClick={() => go("Advanced")}>✦ AI Assistant</button><div className={styles.avatar}><span>DC</span><div><b>Deepak</b><small>Capital Forge</small></div></div></div>
+      <div className={styles.topActions}><LiveDateTime compact/><button className={styles.aiBtn} onClick={() => go("Advanced")}>✦ AI Assistant</button><button className={styles.avatar} onClick={() => router.push("/account")}><span>{initials}</span><div><b>{displayName}</b><small>Capital Forge</small></div></button></div>
     </header>
 
     <aside className={styles.sidebar}>
@@ -327,7 +358,7 @@ export default function PracticePage() {
         <aside className={styles.rail}>
           <section className={styles.railCard}><div className={styles.railHead}><h3>Your Practice Stats</h3><button onClick={() => go("Dashboard")}>View Dashboard →</button></div><div className={styles.statsBody}><div className={styles.donut} style={{ background: `conic-gradient(#1675f2 ${accuracy * 3.6}deg,#e9eef5 0deg)` }}><div><b>{accuracy}%</b><small>Accuracy</small></div></div><div className={styles.statLines}><div className={styles.statLine}><span><i className={`${styles.dot} ${styles.greenDot}`}/>Correct</span><b>{correct}</b></div><div className={styles.statLine}><span><i className={`${styles.dot} ${styles.redDot}`}/>Incorrect</span><b>{incorrect}</b></div><div className={styles.statLine}><span><i className={`${styles.dot} ${styles.grayDot}`}/>Solved</span><b>{solved}</b></div><div className={styles.statLine}><span>Total Live</span><b>{questions.length}</b></div></div></div></section>
 
-          <section className={styles.railCard}><div className={styles.streakTitle}><div><b>🔥 Practice Streak</b><div style={{ color: "#7a8497", fontSize: 10, marginTop: 3 }}>Live from your actual attempt timestamps.</div></div><strong>{streak} days</strong></div><div className={styles.week}>{week.map((d) => <div key={d.label} className={`${styles.day} ${d.done ? styles.done : ""}`}><span>{d.done ? "✓" : ""}</span>{d.label}</div>)}</div></section>
+          <section className={styles.railCard}><div className={styles.streakTitle}><div><b>🔥 Practice Streak</b><div style={{ color: "#7a8497", fontSize: 10, marginTop: 3 }}>Live from your account's actual attempt timestamps.</div></div><strong>{streak} days</strong></div><div className={styles.week}>{week.map((d) => <div key={d.label} className={`${styles.day} ${d.done ? styles.done : ""}`}><span>{d.done ? "✓" : ""}</span>{d.label}</div>)}</div></section>
 
           <section className={styles.railCard}><div className={styles.railHead}><h3>◎ Weak Areas</h3><button onClick={() => setMode("weak")}>View All →</button></div><div className={styles.weakList}>{weakAreas.map((w) => <div key={w.name} className={styles.weakRow}><span>{w.name}</span><div className={styles.bar}><i style={{ width: `${w.total ? Math.max(8, 100 - w.accuracy) : 12}%` }}/></div><b>{w.total ? `${w.accuracy}%` : "—"}</b></div>)}</div></section>
 
