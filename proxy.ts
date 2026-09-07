@@ -39,6 +39,11 @@ function redirectWithCookies(request: NextRequest, path: string, cookieWrites: A
   return applyProxyCookies(NextResponse.redirect(url), cookieWrites);
 }
 
+function loginPath(request: NextRequest, expired = false) {
+  const next = encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search);
+  return `/login?${expired ? "state=session-expired&" : ""}next=${next}`;
+}
+
 function apiError(status: number, message: string) {
   return new NextResponse(JSON.stringify({ ok: false, error: message }), {
     status,
@@ -73,7 +78,7 @@ export async function proxy(request: NextRequest) {
   if (matches(pathname, PUBLIC_API_PREFIXES)) return NextResponse.next();
   if (pathname === "/auth/confirm" || pathname === "/auth/error") return NextResponse.next();
 
-  const { response, cookieWrites, user, profile } = await readProxyAuth(request);
+  const { response, cookieWrites, user, profile, hadAuthCookie } = await readProxyAuth(request);
   const emailVerified = Boolean(user?.email_confirmed_at);
   const approved = Boolean(user && emailVerified && profile?.status === "approved");
   const admin = Boolean(approved && profile?.role === "admin");
@@ -87,7 +92,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname === "/pending") {
-    if (!user) return redirectWithCookies(request, "/login", cookieWrites);
+    if (!user) return redirectWithCookies(request, loginPath(request, hadAuthCookie), cookieWrites);
     if (approved) return redirectWithCookies(request, "/home", cookieWrites);
     return response;
   }
@@ -95,25 +100,25 @@ export async function proxy(request: NextRequest) {
   if (matches(pathname, PUBLIC_PAGES)) return response;
 
   if (matches(pathname, ADMIN_API_PREFIXES)) {
-    if (!user) return apiError(401, "Authentication required.");
+    if (!user) return apiError(401, hadAuthCookie ? "Session expired." : "Authentication required.");
     if (!admin) return apiError(404, "Not found.");
     return response;
   }
 
   if (matches(pathname, ADMIN_PAGE_PREFIXES)) {
-    if (!user) return redirectWithCookies(request, `/login?next=${encodeURIComponent(pathname + request.nextUrl.search)}`, cookieWrites);
+    if (!user) return redirectWithCookies(request, loginPath(request, hadAuthCookie), cookieWrites);
     if (!admin) return redirectWithCookies(request, "/home", cookieWrites);
     return response;
   }
 
   if (pathname.startsWith("/api/")) {
-    if (!user) return apiError(401, "Authentication required.");
+    if (!user) return apiError(401, hadAuthCookie ? "Session expired." : "Authentication required.");
     if (!emailVerified) return apiError(403, "Verify your email before continuing.");
     if (!profile || profile.status !== "approved") return apiError(403, "Account approval required.");
     return response;
   }
 
-  if (!user) return redirectWithCookies(request, `/login?next=${encodeURIComponent(pathname + request.nextUrl.search)}`, cookieWrites);
+  if (!user) return redirectWithCookies(request, loginPath(request, hadAuthCookie), cookieWrites);
   if (!emailVerified) return redirectWithCookies(request, "/pending?state=email-unverified", cookieWrites);
   if (!profile || profile.status !== "approved") return redirectWithCookies(request, "/pending", cookieWrites);
   return response;
