@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import LiveDateTime from "../LiveDateTime";
+import { profileDisplayName, profileInitials, useAuthProfile } from "../AuthProvider";
 
 type Tone = "blue" | "red" | "green" | "purple" | "black";
 type NewsItem = { id:string; tag:string; tone?:Tone; title:string; summary:string; time:string; imageUrl?:string; source?:string; url?:string };
-type Store = { xp?:number; attempts?:Array<{correct?:boolean}>; streak?:number; studySeconds?:number };
+type HomeAttempt = { correct?:boolean|null; durationSeconds?:number; at?:string };
+type Store = { xp?:number; attempts?:HomeAttempt[]; streak?:number; studySeconds?:number };
 type CanonicalCase = {
   id:string;
   source_record_key?:string|null;
@@ -82,6 +84,9 @@ function formatPrice(row:MarketRow){
 
 export default function HomePage(){
   const router=useRouter();
+  const profile=useAuthProfile();
+  const displayName=profileDisplayName(profile);
+  const initials=profileInitials(profile);
   function nav(tab:string){const route=routeForNav(tab);if(route)router.push(route);}
   function openMarket(symbol:string,name?:string){const params=new URLSearchParams({symbol});if(name)params.set("name",name);router.push(`/markets?${params.toString()}`);}
   const [news,setNews]=useState<NewsItem[]>(fallback);
@@ -102,6 +107,12 @@ export default function HomePage(){
       const keys=["capital-forge-prepmate-live-v2","capital-forge-practice-workstation-fixed-v3","capital-forge-practice-workstation-v1"];
       for(const key of keys){const raw=localStorage.getItem(key);if(raw){const parsed=JSON.parse(raw);setStore(parsed);break;}}
     }catch{}
+    fetch("/api/user-progress",{cache:"no-store"}).then(r=>r.json()).then(data=>{
+      if(!data?.ok||!Array.isArray(data.attempts))return;
+      const attempts=data.attempts as HomeAttempt[];
+      const studySeconds=attempts.reduce((n,a)=>n+Number(a.durationSeconds||0),0);
+      setStore(current=>({...current,attempts,studySeconds}));
+    }).catch(()=>{});
     void refreshNews();void refreshCases();void refreshMarkets();
     const id=window.setInterval(()=>void refreshMarkets(),60000);
     return ()=>window.clearInterval(id);
@@ -133,7 +144,8 @@ export default function HomePage(){
 
   const visible=useMemo(()=>ensureFive(news),[news]);
   const attempts=store.attempts||[];
-  const accuracy=attempts.length?Math.round(attempts.filter(x=>x.correct).length/attempts.length*100):0;
+  const graded=attempts.filter(x=>typeof x.correct==="boolean");
+  const accuracy=graded.length?Math.round(graded.filter(x=>x.correct===true).length/graded.length*100):0;
   const studySeconds=Number(store.studySeconds||0);
   const studyHours=studySeconds>0?(studySeconds/3600).toFixed(studySeconds<3600?1:0):"0";
 
@@ -142,13 +154,13 @@ export default function HomePage(){
       <div className="home-brand"><div className="home-brand-mark">CF</div><div><b>Capital Forge</b><small>Master Finance. Build Your Future.</small></div></div>
       <div className="home-search"><span>⌕</span><input placeholder="Search topics, news, cases, questions..."/><kbd>⌘ K</kbd></div>
       <button className="home-ai-btn" onClick={()=>nav("Advanced")}>✦ AI Assistant</button><button className="home-bell">🔔</button><button className="home-trophy">🏆</button>
-      <div className="home-profile"><div className="home-avatar">DC</div><div><b>Deepak</b><small>Keep Going!</small></div><span>⌄</span></div>
+      <button className="home-profile" onClick={()=>router.push("/account")}><div className="home-avatar">{initials}</div><div><b>{displayName}</b><small>Keep Going!</small></div><span>⌄</span></button>
     </header>
 
     <aside className="home-sidebar"><nav>{tabs.map(tab=><button key={tab} className={tab==="Home"?"active":""} onClick={()=>nav(tab)}><span>{icons[tab]}</span>{tab}</button>)}</nav><div className="home-upgrade"><h3>Canonical Content OS</h3><p>700 quality-gated learning objects across finance, investing and interviews.</p><button onClick={()=>router.push("/cases")}>⚡ Open Decision Lab</button></div><div className="home-version">Capital Forge · Full Catalog<br/>Built for your best tomorrow.</div></aside>
 
     <main className="home-workspace"><div className="home-grid"><section className="home-maincol">
-      <section className="home-hero-card"><div className="home-hero-copy"><p className="home-eyebrow">AI-powered finance learning</p><h1>Welcome back, <span>Deepak!</span> 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="home-kpis"><Kpi label="AI Accuracy" value={`${accuracy}%`} tone="green"/><Kpi label="Questions Solved" value={String(attempts.length)} tone="blue"/><Kpi label="Study Time" value={`${studyHours}h`} tone="red"/></div></div><div className="home-hero-art"><div className="home-float f1">DCF</div><div className="home-float f2">LBO</div><div className="home-cube">AI</div></div></section>
+      <section className="home-hero-card"><div className="home-hero-copy"><p className="home-eyebrow">AI-powered finance learning</p><h1>Welcome back, <span>{displayName}!</span> 👋</h1><p>Practice smarter across IB, PE, VC, private credit, valuation, markets and interviews.</p><div className="home-kpis"><Kpi label="AI Accuracy" value={`${accuracy}%`} tone="green"/><Kpi label="Questions Solved" value={String(attempts.length)} tone="blue"/><Kpi label="Study Time" value={`${studyHours}h`} tone="red"/></div></div><div className="home-hero-art"><div className="home-float f1">DCF</div><div className="home-float f2">LBO</div><div className="home-cube">AI</div></div></section>
       <section className="home-section news-section"><div className="home-section-head"><div><h2><i className="live-dot"/>Live News & Updates</h2><p>Curated insights from markets, AI, and global finance.</p></div><div className="home-refresh-wrap"><small>Last updated: {lastUpdated}</small><button onClick={refreshNews}>{busy?"Refreshing...":"↻ Refresh"}</button></div></div><div className="home-news-grid">{visible.map((item,i)=><article key={item.id}><div className="home-news-img" style={{backgroundImage:`url(${item.imageUrl||fallbackImages[i]})`}}/><div className="home-news-meta"><span className={item.tone||"blue"}>{item.tag}</span><small>{item.time}</small></div><h3>{item.title}</h3><p>{item.summary}</p><div className="home-news-foot"><small>{item.source||"Marketaux"}</small>{item.url?<a href={item.url} target="_blank" rel="noreferrer">Read →</a>:<span>Read →</span>}</div></article>)}</div></section>
       <section className="home-section cases-section"><div className="home-section-head"><div><h2>📕 Canonical Decision Cases</h2><p>Cases from the 105-case decision set you uploaded and published.</p></div><div style={{display:"flex",gap:8}}><button onClick={refreshCases}>{caseBusy?"Loading...":"↻ Refresh Cases"}</button><button onClick={()=>router.push("/cases")}>View All 110 →</button></div></div><div className="home-case-grid">{caseItems.map((c,i)=><article key={c.id}><div><span>{c.source_record_key||`Case ${i+1}`}</span><b>{c.domain_name||c.topic_name||"Decision Making"}</b></div><h3>{caseTitle(c)}</h3><p>{caseSummary(c)}</p><small>{difficultyLabel(c.difficulty)} · {c.seniority||"Investment Judgment"}</small><button onClick={()=>router.push(`/cases?case=${encodeURIComponent(c.source_record_key||c.id)}`)}>Solve Now →</button></article>)}</div></section>
     </section>
