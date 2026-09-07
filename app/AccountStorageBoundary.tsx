@@ -75,18 +75,16 @@ export default function AccountStorageBoundary({
       }
 
       const previousUserId = localStorage.getItem(ACTIVE_USER_KEY);
-      const alreadyMigrated = Boolean(localStorage.getItem(`capital-forge-auth-migration-v1-${profileId}`));
 
       if (previousUserId && previousUserId !== profileId) {
         saveWorkspace(previousUserId);
         restoreWorkspace(profileId);
       } else if (!previousUserId) {
-        const mayOwnLegacyBrowserState = role === "admin" || alreadyMigrated;
-        if (mayOwnLegacyBrowserState) {
-          saveWorkspace(profileId);
-        } else {
-          restoreWorkspace(profileId);
-        }
+        // Only the original administrator may inherit pre-authentication browser state.
+        // Every ordinary member starts from an empty local workspace and then loads
+        // only server data owned by their Supabase user id.
+        if (role === "admin") saveWorkspace(profileId);
+        else restoreWorkspace(profileId);
       } else {
         const hasScopedCopy = scopedKeysFor(profileId).length > 0;
         if (!hasScopedCopy) saveWorkspace(profileId);
