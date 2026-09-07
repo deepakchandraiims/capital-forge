@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import LiveDateTime from "../LiveDateTime";
+import { profileDisplayName, profileInitials, useAuthProfile } from "../AuthProvider";
 
 type RangeKey = "Last 7 Days" | "Last 30 Days" | "Last 90 Days" | "This Month" | "Previous Month" | "This Quarter" | "Year to Date" | "All Time";
 type ProgressTab = "Questions" | "Hours" | "Accuracy" | "Modules";
@@ -29,10 +30,22 @@ function rangeBounds(range:RangeKey){
   if(range==="This Quarter"){const q=Math.floor(now.getMonth()/3)*3;return {start:new Date(now.getFullYear(),q,1).getTime(),end:Infinity};}
   return {start:new Date(now.getFullYear(),0,1).getTime(),end:Infinity};
 }
+function mergeAttempts(localRows:Attempt[],serverRows:Attempt[]){
+  const map=new Map<string,Attempt>();
+  for(const row of [...localRows,...serverRows]){
+    const id=String(row.id||"");if(!id)continue;
+    const prev=map.get(id);
+    if(!prev||attemptTime(row)>=attemptTime(prev))map.set(id,row);
+  }
+  return Array.from(map.values());
+}
 
 export default function DashboardPage(){
   const router=useRouter();
-  function go(tab:string,focus?:string){if(focus)localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify({topic:focus,createdAt:new Date().toISOString()}));const route=routeForNav(tab);if(route)router.push(route);}
+  const profile=useAuthProfile();
+  const displayName=profileDisplayName(profile);
+  const initials=profileInitials(profile);
+  function go(tab:string,focus?:string){if(focus){const payload={topic:focus,createdAt:new Date().toISOString()};localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify(payload));fetch("/api/user-progress",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"state",patch:{practiceFocus:payload}})}).catch(()=>{});}const route=routeForNav(tab);if(route)router.push(route);}
   const [range,setRange]=useState<RangeKey>("Last 30 Days");
   const [chartTab,setChartTab]=useState<ProgressTab>("Questions");
   const [attempts,setAttempts]=useState<Attempt[]>([]);
@@ -42,14 +55,22 @@ export default function DashboardPage(){
   const [resetNotice,setResetNotice]=useState("");
 
   useEffect(()=>{
+    let localAttempts:Attempt[]=[];
     const canonical=safeParse("capital-forge-canonical-practice-v1");
-    if(Array.isArray(canonical)) setAttempts(canonical);
+    if(Array.isArray(canonical)){localAttempts=canonical;setAttempts(canonical);}
     else {
       const stores=["capital-forge-practice-workstation-fixed-v3","capital-forge-prepmate-live-v2","capital-forge-practice-workstation-v1"];
-      for(const key of stores){const parsed=safeParse(key);if(parsed?.attempts?.length){setAttempts(parsed.attempts);break;}}
+      for(const key of stores){const parsed=safeParse(key);if(parsed?.attempts?.length){localAttempts=parsed.attempts;setAttempts(parsed.attempts);break;}}
     }
     const savedGoal=safeParse("capital-forge-dashboard-goal-v1");
-    if(savedGoal) setGoal({...DEFAULT_GOAL,...savedGoal,current:0});
+    if(savedGoal)setGoal({...DEFAULT_GOAL,...savedGoal,current:0});
+    fetch("/api/user-progress",{cache:"no-store"}).then(r=>r.json()).then(data=>{
+      if(!data?.ok)return;
+      const serverAttempts=Array.isArray(data.attempts)?data.attempts:[];
+      setAttempts(mergeAttempts(localAttempts,serverAttempts));
+      const serverGoal=data.state?.dashboardGoal;
+      if(serverGoal&&typeof serverGoal==="object")setGoal({...DEFAULT_GOAL,...serverGoal,current:0});
+    }).catch(()=>{});
   },[]);
 
   const bounds=useMemo(()=>rangeBounds(range),[range]);
@@ -85,7 +106,7 @@ export default function DashboardPage(){
 
   const actualGoalCurrent=goal.type==="Questions Practiced"?questions:goal.type==="Hours Learned"?hours:0;
   const goalPct=Math.max(0,Math.min(100,Math.round(actualGoalCurrent/Math.max(goal.target,1)*100)));
-  function saveGoal(next:Goal){const clean={...next,current:0};setGoal(clean);localStorage.setItem("capital-forge-dashboard-goal-v1",JSON.stringify(clean));setEditingGoal(false);}
+  function saveGoal(next:Goal){const clean={...next,current:0};setGoal(clean);localStorage.setItem("capital-forge-dashboard-goal-v1",JSON.stringify(clean));fetch("/api/user-progress",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"state",patch:{dashboardGoal:clean}})}).catch(()=>{});setEditingGoal(false);}
 
   async function resetAllHistory(){
     if(!window.confirm("Reset ALL Capital Forge learning history? This will clear Practice, Knowledge Vault progress, saved responses, goals and learning history so every dashboard metric starts from 0."))return;
@@ -103,7 +124,7 @@ export default function DashboardPage(){
     <header className="dash-header">
       <div className="dash-brand"><div className="dash-brand-mark">CF</div><div><b>Capital Forge</b><small>Master Finance. Build Your Future.</small></div></div>
       <div className="dash-header-mid"><div className="dash-search"><span>⌕</span><input placeholder="Search for topics, questions, or anything..."/><kbd>⌘ K</kbd></div></div>
-      <div className="dash-header-right"><LiveDateTime compact/><button className="dash-ai" onClick={()=>go("Advanced")}>✦ AI Assistant</button><div className="dash-profile"><div className="dash-avatar">DC</div><div><b>Deepak</b><small>Capital Forge</small></div><button className="dash-caret">⌄</button></div></div>
+      <div className="dash-header-right"><LiveDateTime compact/><button className="dash-ai" onClick={()=>go("Advanced")}>✦ AI Assistant</button><button className="dash-profile" onClick={()=>router.push("/account")}><div className="dash-avatar">{initials}</div><div><b>{displayName}</b><small>Capital Forge</small></div><span className="dash-caret">⌄</span></button></div>
     </header>
 
     <aside className="dash-sidebar">
