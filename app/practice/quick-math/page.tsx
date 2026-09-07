@@ -28,36 +28,9 @@ type MathQuestion = {
   validation_status: string;
 };
 
-type LevelMeta = {
-  level: number;
-  name: string;
-  count: number;
-  minDifficulty: number;
-  maxDifficulty: number;
-  categoryCount: number;
-};
-
-type DatasetMeta = {
-  total: number;
-  validated: number;
-  levelCount: number;
-  categoryCount: number;
-  subcategoryCount: number;
-  levels: LevelMeta[];
-};
-
-type PracticeAttempt = {
-  id: string;
-  correct: boolean | null;
-  at: string;
-  response?: string;
-  savedResponse?: boolean;
-  durationSeconds?: number;
-  title?: string;
-  category?: string;
-  questionType?: string;
-};
-
+type LevelMeta = { level: number; name: string; count: number; minDifficulty: number; maxDifficulty: number; categoryCount: number };
+type DatasetMeta = { total: number; validated: number; levelCount: number; categoryCount: number; subcategoryCount: number; levels: LevelMeta[] };
+type PracticeAttempt = { id: string; correct: boolean | null; at: string; response?: string; savedResponse?: boolean; durationSeconds?: number; title?: string; category?: string; questionType?: string };
 type RoundResult = { id: string; correct: boolean; seconds: number };
 
 const ATTEMPT_STORE = "capital-forge-canonical-practice-v1";
@@ -85,49 +58,40 @@ function iconFor(name: string) {
 }
 
 function cleanNumeric(value: string) {
-  const cleaned = value
-    .replace(/,/g, "")
-    .replace(/₹|\$|€|£/g, "")
-    .replace(/\b(rs|inr|usd|eur|gbp|crore|cr|lakh|million|days?|months?|bps)\b/gi, "")
-    .replace(/%/g, "")
-    .replace(/[x×]$/i, "")
-    .trim();
+  const cleaned = value.replace(/,/g, "").replace(/₹|\$|€|£/g, "").replace(/\b(rs|inr|usd|eur|gbp|crore|cr|lakh|million|days?|months?|bps)\b/gi, "").replace(/%/g, "").replace(/[x×]$/i, "").trim();
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
 }
 
-function normalizedText(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/,/g, "")
-    .replace(/\s+/g, " ");
-}
+function normalizedText(value: unknown) { return String(value ?? "").trim().toLowerCase().replace(/,/g, "").replace(/\s+/g, " "); }
 
 function isCorrectAnswer(question: MathQuestion, input: string) {
   const normalized = normalizedText(input);
-  const accepted = [question.answer, ...(Array.isArray(question.acceptable_answers) ? question.acceptable_answers : [])]
-    .map(normalizedText)
-    .filter(Boolean);
+  const accepted = [question.answer, ...(Array.isArray(question.acceptable_answers) ? question.acceptable_answers : [])].map(normalizedText).filter(Boolean);
   if (accepted.includes(normalized)) return true;
-
   if (typeof question.answer === "number") {
     const numeric = cleanNumeric(input);
     if (numeric == null) return false;
     return Math.abs(numeric - question.answer) <= Math.max(Number(question.tolerance || 0), 1e-9);
   }
-
   const answerNumeric = cleanNumeric(String(question.answer));
   const inputNumeric = cleanNumeric(input);
-  if (answerNumeric != null && inputNumeric != null) {
-    return Math.abs(inputNumeric - answerNumeric) <= Math.max(Number(question.tolerance || 0), 1e-9);
-  }
+  if (answerNumeric != null && inputNumeric != null) return Math.abs(inputNumeric - answerNumeric) <= Math.max(Number(question.tolerance || 0), 1e-9);
   return false;
 }
 
 function displayAnswer(question: MathQuestion) {
   const base = typeof question.answer === "number" ? question.answer.toLocaleString("en-IN", { maximumFractionDigits: 6 }) : String(question.answer);
   return question.unit ? `${base} ${question.unit}` : base;
+}
+
+function mergeAttempts(localRows: PracticeAttempt[], serverRows: PracticeAttempt[]) {
+  const map = new Map<string, PracticeAttempt>();
+  for (const row of [...localRows, ...serverRows]) {
+    const prev = map.get(row.id);
+    if (!prev || String(row.at || "") >= String(prev.at || "")) map.set(row.id, row);
+  }
+  return Array.from(map.values());
 }
 
 export default function QuickMathPage() {
@@ -150,11 +114,21 @@ export default function QuickMathPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    let localAttempts: PracticeAttempt[] = [];
     try {
       const raw = localStorage.getItem(ATTEMPT_STORE);
-      if (raw) setAttempts(JSON.parse(raw));
+      if (raw) { localAttempts = JSON.parse(raw); if (Array.isArray(localAttempts)) setAttempts(localAttempts); }
     } catch {}
     void loadMeta();
+    void (async () => {
+      try {
+        const res = await fetch("/api/user-progress", { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok || !data.ok) return;
+        const serverAttempts = Array.isArray(data.attempts) ? data.attempts : [];
+        setAttempts((current) => mergeAttempts(current.length ? current : localAttempts, serverAttempts));
+      } catch {}
+    })();
   }, []);
 
   useEffect(() => {
@@ -181,79 +155,46 @@ export default function QuickMathPage() {
   }
 
   const selectedMeta = useMemo(() => meta.levels.find((x) => x.level === selectedLevel) || null, [meta.levels, selectedLevel]);
-
-  function chooseLevel(level: LevelMeta | null) {
-    setSelectedLevel(level?.level || 0);
-    if (level) setDifficulty(level.minDifficulty || 1);
-  }
+  function chooseLevel(level: LevelMeta | null) { setSelectedLevel(level?.level || 0); if (level) setDifficulty(level.minDifficulty || 1); }
 
   async function startRound() {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const params = new URLSearchParams({ action: "round", count: String(roundSize) });
-      if (selectedLevel) params.set("level", String(selectedLevel));
-      else params.set("difficulty", String(difficulty));
+      if (selectedLevel) params.set("level", String(selectedLevel)); else params.set("difficulty", String(difficulty));
       const res = await fetch(`/api/quick-math?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Could not load the Quick Math round.");
       const rows = Array.isArray(data.questions) ? data.questions : [];
       if (!rows.length) throw new Error("No canonical questions match this selection.");
-      setQueue(rows);
-      setPosition(0);
-      setInput("");
-      setFeedback(null);
-      setResults([]);
-      setRoundStartedAt(Date.now());
-      setQuestionStartedAt(Date.now());
-      setPhase("active");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load the Quick Math round.");
-    } finally {
-      setLoading(false);
-    }
+      setQueue(rows); setPosition(0); setInput(""); setFeedback(null); setResults([]); setRoundStartedAt(Date.now()); setQuestionStartedAt(Date.now()); setPhase("active");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load the Quick Math round."); }
+    finally { setLoading(false); }
   }
 
   const current = queue[position];
 
   function persistAttempt(question: MathQuestion, correct: boolean, response: string, seconds: number) {
-    const row: PracticeAttempt = {
-      id: question.id,
-      correct,
-      at: new Date().toISOString(),
-      response,
-      savedResponse: true,
-      durationSeconds: seconds,
-      title: question.question,
-      category: `Quick Math · ${question.level_name}`,
-      questionType: "quick_math"
-    };
+    const row: PracticeAttempt = { id: question.id, correct, at: new Date().toISOString(), response, savedResponse: true, durationSeconds: seconds, title: question.question, category: `Quick Math · ${question.level_name}`, questionType: "quick_math" };
     const next = [...attempts.filter((a) => a.id !== question.id), row];
     setAttempts(next);
     try { localStorage.setItem(ATTEMPT_STORE, JSON.stringify(next)); } catch {}
+    fetch("/api/user-progress", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "saveAttempt", attempt: row }) }).catch(() => {});
   }
 
   function submitAnswer() {
     if (!current || feedback || !input.trim()) return;
     const correct = isCorrectAnswer(current, input);
     const seconds = Math.max(1, Math.round((Date.now() - questionStartedAt) / 1000));
-    const result = { id: current.id, correct, seconds };
-    setResults((prev) => [...prev, result]);
+    setResults((prev) => [...prev, { id: current.id, correct, seconds }]);
     persistAttempt(current, correct, input.trim(), seconds);
     setFeedback({ correct, answer: displayAnswer(current), technique: current.technique, solution: current.solution });
   }
 
   function nextQuestion() {
     if (!current || !feedback) return;
-    if (position >= queue.length - 1) {
-      setPhase("complete");
-      setFeedback(null);
-      return;
-    }
-    setPosition((p) => p + 1);
-    setInput("");
-    setFeedback(null);
-    setQuestionStartedAt(Date.now());
+    if (position >= queue.length - 1) { setPhase("complete"); setFeedback(null); return; }
+    setPosition((p) => p + 1); setInput(""); setFeedback(null); setQuestionStartedAt(Date.now());
   }
 
   const quickAttempts = useMemo(() => attempts.filter((a) => a.questionType === "quick_math" || a.category?.startsWith("Quick Math")), [attempts]);
@@ -261,7 +202,6 @@ export default function QuickMathPage() {
   const lifetimeCorrect = lifetimeGraded.filter((a) => a.correct === true).length;
   const lifetimeAccuracy = lifetimeGraded.length ? Math.round((lifetimeCorrect / lifetimeGraded.length) * 100) : 0;
   const lifetimeAvgSeconds = quickAttempts.length ? Math.round(quickAttempts.reduce((n, a) => n + Number(a.durationSeconds || 0), 0) / quickAttempts.length) : 0;
-
   const roundCorrect = results.filter((x) => x.correct).length;
   const roundAccuracy = results.length ? Math.round((roundCorrect / results.length) * 100) : 0;
   const roundAvgSeconds = results.length ? Math.round(results.reduce((n, x) => n + x.seconds, 0) / results.length) : 0;
@@ -304,14 +244,14 @@ export default function QuickMathPage() {
             <div className={styles.answerRow}><input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} disabled={Boolean(feedback)} placeholder={current.unit ? `Answer in ${current.unit}` : "Type answer"} autoComplete="off" inputMode="decimal"/><button onClick={feedback ? nextQuestion : submitAnswer}>{feedback ? (position === queue.length - 1 ? "Finish" : "Next →") : "Submit"}</button></div>
             {feedback && <div className={`${styles.feedback} ${feedback.correct ? styles.good : styles.bad}`}><b>{feedback.correct ? "✓ Correct" : `✕ Answer: ${feedback.answer}`}</b><span>{feedback.technique}<br/>{feedback.solution}</span></div>}
             <div className={styles.liveStats}><div><small>Accuracy</small><b>{roundAccuracy}%</b></div><div><small>Correct</small><b>{roundCorrect}/{results.length}</b></div><div><small>Avg Response</small><b>{roundAvgSeconds || 0}s</b></div><div><small>Target</small><b>{current.time_target_seconds}s</b></div></div>
-            <small className={styles.keyboardHint}>Press Enter to submit · Enter again for next question · every attempt saves automatically to Practice history.</small>
+            <small className={styles.keyboardHint}>Press Enter to submit · Enter again for next question · every attempt saves automatically to your account Practice history.</small>
           </div>}
 
           {phase === "complete" && <div className={styles.complete}><p>ROUND COMPLETE</p><h2>{roundAccuracy}%</h2><strong>{roundCorrect} of {results.length} correct</strong><div><span>Average response<b>{roundAvgSeconds}s</b></span><span>Questions<b>{results.length}</b></span><span>Elapsed<b>{Math.max(1, Math.round(elapsed / 60))}m</b></span></div><button onClick={startRound}>Run Another Round</button><button className={styles.secondary} onClick={() => { setPhase("setup"); setQueue([]); setResults([]); setInput(""); }}>Change Setup</button></div>}
         </section>
 
         <aside className={styles.rail}>
-          <section><p>LIFETIME QUICK MATH</p><div className={styles.bigMetric}><b>{quickAttempts.length.toLocaleString("en-IN")}</b><span>attempts recorded</span></div><div className={styles.metricRow}><span>Accuracy</span><b>{lifetimeAccuracy}%</b></div><div className={styles.metricRow}><span>Avg response</span><b>{lifetimeAvgSeconds}s</b></div><small>Every submitted answer is saved into the same Practice history used by your Dashboard and Reset All History.</small></section>
+          <section><p>LIFETIME QUICK MATH</p><div className={styles.bigMetric}><b>{quickAttempts.length.toLocaleString("en-IN")}</b><span>attempts recorded</span></div><div className={styles.metricRow}><span>Accuracy</span><b>{lifetimeAccuracy}%</b></div><div className={styles.metricRow}><span>Avg response</span><b>{lifetimeAvgSeconds}s</b></div><small>Every submitted answer is stored in your account-scoped Practice history and remains mirrored locally for migration safety.</small></section>
           <section><p>CANONICAL BANK</p><h3>{meta.validated.toLocaleString("en-IN")} / {meta.total.toLocaleString("en-IN")} validated</h3><span>44 levels progress from number fluency to valuation, PE/IB math, working capital, probability, modeling speed and Extreme / Expert Mode.</span></section>
           <section><p>WHY THIS EXISTS</p><h3>Speed creates spare mental capacity.</h3><span>When numerical operations become automatic, more attention stays available for valuation logic, deal structure, underwriting and judgment.</span></section>
         </aside>
