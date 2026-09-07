@@ -12,6 +12,16 @@ function readJson(key: string) {
   }
 }
 
+function legacyDeviceKey() {
+  const storageKey = "capital-forge-legacy-device-v1";
+  let value = localStorage.getItem(storageKey);
+  if (!value) {
+    value = `legacy_${crypto.randomUUID().replaceAll("-", "")}`;
+    localStorage.setItem(storageKey, value);
+  }
+  return value;
+}
+
 export default function LegacyProgressClaimer() {
   const profile = useAuthProfile();
 
@@ -22,19 +32,20 @@ export default function LegacyProgressClaimer() {
 
     let cancelled = false;
     (async () => {
+      // The device key makes browser-only Practice/Interview history single-owner too.
+      // A second account on the same browser cannot import the first account's legacy copy.
       const clientKeys = [
+        legacyDeviceKey(),
         localStorage.getItem("capital-forge-kv-client-v1"),
         localStorage.getItem("capital-forge-advanced-client-v1")
       ].filter(Boolean);
 
-      if (clientKeys.length) {
-        const claim = await fetch("/api/auth/claim", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ clientKeys })
-        });
-        if (!claim.ok) return;
-      }
+      const claim = await fetch("/api/auth/claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientKeys })
+      });
+      if (!claim.ok) return;
 
       let attempts = readJson("capital-forge-canonical-practice-v1");
       if (!Array.isArray(attempts)) {
