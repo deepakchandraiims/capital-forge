@@ -2,75 +2,18 @@ name: Capital Forge CI
 on:
   push:
     branches: [main]
-permissions:
-  contents: write
+  pull_request:
+    branches: [main]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install
-      - name: Capture TypeScript baseline
-        shell: bash
-        run: |
-          set +e
-          npm run typecheck > /tmp/ts-before.txt 2>&1
-          set -e
-      - name: Apply CF-051 migration
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('scripts/cf051_migrate.py')
-          t=p.read_text()
-          old="    ('function Saved(){', 'function Saved(){const router=useRouter();')\n]"
-          new="    ('function Saved(){', 'function Saved(){const router=useRouter();'),\n    ('function ProgressRedirect(){', 'function ProgressRedirect(){const router=useRouter();')\n]"
-          if old not in t: raise SystemExit('CF-051 progress redirect patch anchor missing')
-          t=t.replace(old,new,1)
-          old2="t = t.replace('window.location.assign(', 'router.push(')\nt = t.replace('onClick={()=>history.back()}'"
-          new2="t = t.replace('window.location.assign(', 'router.push(')\nt = t.replace('window.location.replace(', 'router.replace(')\nt = t.replace('onClick={()=>history.back()}'"
-          if old2 not in t: raise SystemExit('CF-051 replace patch anchor missing')
-          p.write_text(t.replace(old2,new2,1))
-          PY
-          python3 scripts/cf051_migrate.py
       - run: npm run validate:content
-      - name: Verify no new TypeScript errors
-        shell: bash
-        run: |
-          set +e
-          npm run typecheck > /tmp/ts-after.txt 2>&1
-          set -e
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-          def norm(path):
-              out=set()
-              rx=re.compile(r'^([^\s(]+)\(\d+,\d+\): error (TS\d+): (.*)$')
-              for line in Path(path).read_text().splitlines():
-                  m=rx.match(line)
-                  if m: out.add(f'{m.group(1)}|{m.group(2)}|{m.group(3)}')
-              return out
-          before=norm('/tmp/ts-before.txt'); after=norm('/tmp/ts-after.txt'); new=sorted(after-before)
-          print('CF051_TSC_BASELINE_ERRORS',len(before)); print('CF051_TSC_AFTER_ERRORS',len(after)); print('CF051_TSC_NEW_ERRORS',len(new))
-          for x in new: print('NEW_TS_ERROR',x)
-          if new: raise SystemExit('BLOCKED: CF-051 introduced TypeScript errors')
-          PY
+      - run: npm run typecheck
       - run: npm run build
-      - name: Verify navigation source
-        shell: bash
-        run: |
-          if grep -RIl --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' -E 'window\.location\.assign|(^|[^A-Za-z0-9_])location\.assign|window\.location\.replace' app; then exit 1; fi
-          echo 'CF051_ASSIGN_GREP=0'
-          git diff --check
-      - name: Commit CF-051 source changes
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app
-          git commit -m "fix: use client routing across Capital Forge shell"
-          git push origin HEAD:main
