@@ -95,14 +95,12 @@ jobs:
           }
           ''')
 
-          # NavRouteBridge: shared lookup; CF-051 will replace full-page navigation itself.
           replace_once('app/NavRouteBridge.tsx','import { useEffect } from "react";','import { useEffect } from "react";\nimport { PRIMARY_NAV, routeForNav } from "./navigation";','bridge import')
           regex_once('app/NavRouteBridge.tsx',r'const APP_TABS = \[.*?\] as const;\n\nconst DIRECT_ROUTES: Record<string, string> = \{.*?\n\};\n\n','', 'bridge local route maps')
           replace_once('app/NavRouteBridge.tsx','return APP_TABS.find((item) => normalized === item || normalized.endsWith(item));','return PRIMARY_NAV.find((item) => normalized === item || normalized.endsWith(item));','bridge tab lookup')
           replace_once('app/NavRouteBridge.tsx','return tab ? DIRECT_ROUTES[tab] : undefined;','return tab ? routeForNav(tab) : undefined;','bridge route lookup')
           regex_once('app/NavRouteBridge.tsx',r'\n      const params = new URLSearchParams\(window\.location\.search\);\n      const open = params\.get\("open"\);\n      const queryRoute = open \? DIRECT_ROUTES\[open\] : undefined;\n      if \(queryRoute\) \{ navigate\(queryRoute, true\); return; \}\n','\n','bridge root open dispatcher')
 
-          # Standard shells: one nav source and no API item.
           specs=[
               ('app/home/page.tsx','../navigation','nav','function openMarket'),
               ('app/practice/page.tsx','../navigation','go','function pretty'),
@@ -119,10 +117,10 @@ jobs:
               t,n=re.subn(r'const\s+(?:tabs|navTabs)\s*=\s*\[[^\n]+\];\nconst\s+(?:icons|navIcons)\s*:\s*Record<string,\s*string>\s*=\s*\{[^\n]+\};','const tabs=PRIMARY_NAV;\nconst icons=NAV_ICONS;',t,count=1)
               if n!=1: raise SystemExit(f'BLOCKED: nav list/icons not found in {path}')
               if path=='app/dashboard/page.tsx':
-                  pat=r'function go\(tab:string, focus\?:string\)\{.*?\n\}\nfunction rangeBounds'
+                  pat=r'function go\(tab:string, focus\?:string\)\{.*?\n\}\n\s*function rangeBounds'
                   repl='function go(tab:string, focus?:string){\n  if(focus) localStorage.setItem("capital-forge-focus-practice-v1",JSON.stringify({topic:focus,createdAt:new Date().toISOString()}));\n  const route=routeForNav(tab);\n  if(route) window.location.assign(route);\n}\nfunction rangeBounds'
               else:
-                  pat=rf'function\s+{fn}\(tab:\s*string\)\s*\{{.*?\}}\n{re.escape(next_fn)}'
+                  pat=rf'function\s+{fn}\(tab:\s*string\)\s*\{{.*?\}}\n\s*{re.escape(next_fn)}'
                   repl=f'function {fn}(tab:string){{\n  const route=routeForNav(tab);\n  if(route) window.location.assign(route);\n}}\n{next_fn}'
               t,n2=re.subn(pat,repl,t,count=1,flags=re.S)
               if n2!=1: raise SystemExit(f'BLOCKED: {fn} navigation function not found in {path}')
@@ -130,16 +128,14 @@ jobs:
 
           p=Path('app/feedback/page.tsx'); t=p.read_text().replace('navTabs.map(','tabs.map(').replace('navIcons[tab]','icons[tab]'); p.write_text(t)
 
-          # Cases uses the primary shell; Advanced is its current parent until orphan-route IA work.
           p=Path('app/cases/page.tsx'); t=p.read_text()
           t=t.replace('import { useEffect, useMemo, useState } from "react";','import { useEffect, useMemo, useState } from "react";\nimport { PRIMARY_NAV, routeForNav } from "../navigation";',1)
           t=t.replace('const tabs = ["Home", "Practice", "Cases", "Advanced", "Dashboard", "Feedback", "Interview Room"];','const tabs = PRIMARY_NAV;',1)
-          t,n=re.subn(r'function go\(tab: string\) \{.*?\n\}\n\nfunction pickText','function go(tab: string) {\n  const route = routeForNav(tab);\n  if (route) window.location.assign(route);\n}\n\nfunction pickText',t,count=1,flags=re.S)
+          t,n=re.subn(r'function go\(tab: string\) \{.*?\n\}\n\s*function pickText','function go(tab: string) {\n  const route = routeForNav(tab);\n  if (route) window.location.assign(route);\n}\nfunction pickText',t,count=1,flags=re.S)
           if n!=1: raise SystemExit('BLOCKED: cases go() not found')
           t=t.replace('className={tab === "Cases" ? "active" : ""}','className={tab === "Advanced" ? "active" : ""}',1)
           p.write_text(t)
 
-          # Advanced page shared map.
           p=Path('app/advanced/page.tsx'); t=p.read_text()
           t=t.replace('import LiveDateTime from "../LiveDateTime";','import LiveDateTime from "../LiveDateTime";\nimport { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";',1)
           t,n=re.subn(r'const ROUTES: Record<string,string> = \{.*?\};\nconst NAV = \[.*?\];\nconst ICONS: Record<string,string> = \{.*?\};','const NAV=PRIMARY_NAV;\nconst ICONS=NAV_ICONS;',t,count=1)
@@ -150,27 +146,23 @@ jobs:
           t=t.replace('onClick={()=>location.assign(ROUTES[n])}','onClick={()=>go(n)}',1)
           p.write_text(t)
 
-          # Vault shell shared map.
           p=Path('app/knowledge-vault/KnowledgeVaultShell.tsx'); t=p.read_text()
           t=t.replace('import LiveDateTime from "../LiveDateTime";','import LiveDateTime from "../LiveDateTime";\nimport { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";',1)
           t,n=re.subn(r'const tabs = \[.*?\];\nconst icons: Record<string, string> = \{.*?\};\n\nfunction go\(tab: string\) \{.*?\n\}','const tabs=PRIMARY_NAV;\nconst icons=NAV_ICONS;\n\nfunction go(tab: string) {\n  const route=routeForNav(tab);\n  if(route) window.location.assign(route);\n}',t,count=1,flags=re.S)
           if n!=1: raise SystemExit('BLOCKED: Vault shell nav config not found')
           p.write_text(t)
 
-          # Preserve the four intent-bearing deep links by canonicalizing destination + query context.
           replace_once('app/interview/session/[id]/results/page.tsx','window.location.assign("/?open=Practice")','window.location.assign("/practice")','interview weak-area handoff')
           replace_once('app/knowledge-vault/LearningObjectRenderer.tsx','`/?open=Advanced&kvObject=${encodeURIComponent(object.id || object.source_record_key || "")}&prompt=${encodeURIComponent(aiPrompt)}`','`/advanced?kvObject=${encodeURIComponent(object.id || object.source_record_key || "")}&prompt=${encodeURIComponent(aiPrompt)}`','Vault Ask AI deep link')
           replace_once('app/knowledge-vault/LearningObjectRenderer.tsx','`/?open=Advanced&topic=${encodeURIComponent(object.topic || object.category || "")}`','`/advanced?topic=${encodeURIComponent(object.topic || object.category || "")}`','Vault Go Deeper deep link')
           replace_once('app/markets/page.tsx','`/?open=Advanced&prompt=${encodeURIComponent(`Analyze ${displayName} (${symbol}) over ${range}. Explain the price move, likely macro/company drivers, valuation implications, risks and what I should learn from it.`)}`','`/advanced?prompt=${encodeURIComponent(`Analyze ${displayName} (${symbol}) over ${range}. Explain the price move, likely macro/company drivers, valuation implications, risks and what I should learn from it.`)}`','Markets Analyze with AI deep link')
 
-          # Legacy root component cannot render after proxy redirect; remove its dead API tab from source too.
           p=Path('app/page.tsx'); t=p.read_text()
           t=t.replace('type Tab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room" | "API";','type Tab = "Home" | "Practice" | "Advanced" | "Dashboard" | "Feedback" | "Interview Room";',1)
           t=t.replace('const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room", "API"];','const tabs: Tab[] = ["Home", "Practice", "Advanced", "Dashboard", "Feedback", "Interview Room"];',1)
           t=t.replace('  "Interview Room": "▻",\n  API: "⌘"','  "Interview Room": "▻"',1)
           p.write_text(t)
 
-          # Proxy keeps legacy intent-bearing ?open deep links as compatibility redirects, using the ONE shared map.
           p=Path('proxy.ts'); t=p.read_text()
           t=t.replace('import { NextRequest, NextResponse } from "next/server";','import { NextRequest, NextResponse } from "next/server";\nimport { routeForNav } from "./app/navigation";',1)
           t,n=re.subn(r'\n  const open = searchParams\.get\("open"\);.*?return NextResponse\.redirect\(url\);','''
