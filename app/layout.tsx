@@ -11,6 +11,7 @@ import "./smooth-navigation.css";
 import NavRouteBridge from "./NavRouteBridge";
 import PerformanceWarmup from "./PerformanceWarmup";
 import SmoothTabNavigation from "./SmoothTabNavigation";
+import MarketRequestCoalescer from "./MarketRequestCoalescer";
 import AuthProvider from "./AuthProvider";
 import AccountStorageBoundary from "./AccountStorageBoundary";
 import { getAuthContext } from "../lib/auth/server";
@@ -41,6 +42,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <AuthProvider profile={profile}>
           <AccountStorageBoundary profileId={profile?.id || null} role={profile?.role || null}>
             <SmoothTabNavigation enabled={approved} />
+            <MarketRequestCoalescer enabled={approved} />
             <NavRouteBridge />
             <PerformanceWarmup enabled={approved} />
             {children}
