@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+export const preferredRegion = "icn1";
+
+let metaCache: { expiresAt: number; data: unknown } | null = null;
 
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,10 +26,22 @@ export async function GET(request: Request) {
   const action = url.searchParams.get("action") || "meta";
 
   if (action === "meta") {
+    if (metaCache && metaCache.expiresAt > Date.now()) {
+      return NextResponse.json({ ok: true, dataset: metaCache.data }, {
+        headers: {
+          "Cache-Control": "public, max-age=300, s-maxage=1800, stale-while-revalidate=86400",
+          "X-Capital-Forge-Cache": "memory-hit"
+        }
+      });
+    }
     const { data, error } = await db.rpc("get_quick_math_meta");
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    metaCache = { data, expiresAt: Date.now() + 30 * 60 * 1000 };
     return NextResponse.json({ ok: true, dataset: data }, {
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=900" }
+      headers: {
+        "Cache-Control": "public, max-age=300, s-maxage=1800, stale-while-revalidate=86400",
+        "X-Capital-Forge-Cache": "memory-miss"
+      }
     });
   }
 
@@ -67,7 +82,7 @@ export async function GET(request: Request) {
       validation_status: q.validation_status
     }));
 
-    return NextResponse.json({ ok: true, questions });
+    return NextResponse.json({ ok: true, questions }, { headers: { "Cache-Control": "private, no-store" } });
   }
 
   if (action === "question") {
@@ -76,7 +91,7 @@ export async function GET(request: Request) {
     const { data, error } = await db.from("quick_math_questions").select("*").eq("id", id).maybeSingle();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     if (!data) return NextResponse.json({ ok: false, error: "Question not found." }, { status: 404 });
-    return NextResponse.json({ ok: true, question: data });
+    return NextResponse.json({ ok: true, question: data }, { headers: { "Cache-Control": "public, max-age=300, s-maxage=1800, stale-while-revalidate=86400" } });
   }
 
   return NextResponse.json({ ok: false, error: "Unknown Quick Math action." }, { status: 400 });
