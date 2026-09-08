@@ -1,4 +1,5 @@
 import "server-only";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerSupabase } from "../supabase/server";
 
@@ -21,7 +22,44 @@ export type AuthContext = {
   profile: AuthProfile | null;
 };
 
+function decoded(value: string | null) {
+  if (!value) return "";
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+async function proxyAuthContext(): Promise<AuthContext | null> {
+  const h = await headers();
+  if (h.get("x-cf-auth-verified") !== "1") return null;
+  const id = h.get("x-cf-auth-user-id");
+  if (!id) return null;
+  const email = decoded(h.get("x-cf-auth-email")) || null;
+  const role = h.get("x-cf-auth-role") as AccountRole | null;
+  const status = h.get("x-cf-auth-status") as AccountStatus | null;
+  const profileId = h.get("x-cf-auth-profile-id");
+  const profile = profileId && role && status ? {
+    id: profileId,
+    email: email || "",
+    full_name: decoded(h.get("x-cf-auth-full-name")) || null,
+    role,
+    status,
+    created_at: decoded(h.get("x-cf-auth-created-at")),
+    approved_at: decoded(h.get("x-cf-auth-approved-at")) || null,
+    approved_by: decoded(h.get("x-cf-auth-approved-by")) || null
+  } satisfies AuthProfile : null;
+
+  return {
+    user: { id, email, emailVerified: h.get("x-cf-auth-email-verified") === "1" },
+    profile
+  };
+}
+
 export async function getAuthContext(): Promise<AuthContext> {
+  // The proxy already verified the JWT and loaded the profile. Reuse that
+  // result instead of repeating Supabase Auth + profile network requests.
+  const forwarded = await proxyAuthContext();
+  if (forwarded) return forwarded;
+
+  // Fallback for routes that intentionally bypass proxy auth handling.
   const supabase = await createServerSupabase();
   const { data: userData, error } = await supabase.auth.getUser();
   const user = error ? null : userData.user;
