@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const preferredRegion = "icn1";
 
 type Tone = "blue" | "red" | "green" | "purple" | "black";
 type MarketauxItem = { uuid?: string; title?: string; description?: string; snippet?: string; url?: string; image_url?: string; published_at?: string; source?: string; entities?: Array<{ industry?: string; symbol?: string; name?: string }> };
@@ -21,6 +22,10 @@ const demoNews: UiNews[] = [
   { id: "demo-news-4", tag: "Business", tone: "red", title: "Renewables deal activity keeps scaling", summary: "Translate strategic buyer appetite into valuation, synergy and risk questions.", time: "Demo", visual: "⚡", imageUrl: fallbackImages[3], source: "Capital Forge" },
   { id: "demo-news-5", tag: "Global", tone: "blue", title: "Macro signals are driving deal timing", summary: "Ask what lower rates mean for valuations, debt capacity and exits.", time: "Demo", visual: "🌐", imageUrl: fallbackImages[4], source: "Capital Forge" }
 ];
+
+const newsCache=new Map<string,{expiresAt:number;body:Record<string,unknown>}>();
+const NEWS_CACHE_MS=60_000;
+const CACHE_HEADERS={"Cache-Control":"public, max-age=60, s-maxage=180, stale-while-revalidate=900"};
 
 function toneFor(text: string): Tone {
   const lower = text.toLowerCase();
@@ -68,9 +73,14 @@ export async function GET(request: Request) {
   const apiKey = process.env.NEWS_API_KEY || headerKey || "";
   const limit = 5;
   const symbols = searchParams.get("symbols") || "AAPL,MSFT,NVDA,TSLA,JPM,GS,SPY,QQQ";
+  const cacheKey=`${provider}:${symbols}`;
+  const cached=newsCache.get(cacheKey);
+  if(cached&&cached.expiresAt>Date.now())return NextResponse.json(cached.body,{headers:{...CACHE_HEADERS,"X-Capital-Forge-Cache":"memory-hit"}});
 
   if (!apiKey || provider !== "marketaux") {
-    return NextResponse.json({ configured: false, provider, source: apiKey ? "unsupported" : "demo", news: ensureFive(demoNews), generatedAt: new Date().toISOString() });
+    const body={ configured: false, provider, source: apiKey ? "unsupported" : "demo", news: ensureFive(demoNews), generatedAt: new Date().toISOString() };
+    newsCache.set(cacheKey,{body,expiresAt:Date.now()+NEWS_CACHE_MS});
+    return NextResponse.json(body,{headers:CACHE_HEADERS});
   }
 
   try {
@@ -102,8 +112,12 @@ export async function GET(request: Request) {
       } satisfies UiNews;
     });
 
-    return NextResponse.json({ configured: true, provider: "marketaux", source: process.env.NEWS_API_KEY ? "vercel-env" : "browser-vault", news: ensureFive(news), generatedAt: new Date().toISOString() });
+    const body={ configured: true, provider: "marketaux", source: process.env.NEWS_API_KEY ? "vercel-env" : "browser-vault", news: ensureFive(news), generatedAt: new Date().toISOString() };
+    newsCache.set(cacheKey,{body,expiresAt:Date.now()+NEWS_CACHE_MS});
+    return NextResponse.json(body,{headers:{...CACHE_HEADERS,"X-Capital-Forge-Cache":"memory-miss"}});
   } catch (error) {
-    return NextResponse.json({ configured: false, provider: "marketaux", source: "fallback", warning: error instanceof Error ? error.message : "Marketaux request failed", news: ensureFive(demoNews), generatedAt: new Date().toISOString() });
+    const body={ configured: false, provider: "marketaux", source: "fallback", warning: error instanceof Error ? error.message : "Marketaux request failed", news: ensureFive(demoNews), generatedAt: new Date().toISOString() };
+    newsCache.set(cacheKey,{body,expiresAt:Date.now()+30_000});
+    return NextResponse.json(body,{headers:CACHE_HEADERS});
   }
 }
