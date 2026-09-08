@@ -8,6 +8,7 @@ import "./knowledge-vault.css";
 import "./knowledge-dashboard.css";
 import "./auth.css";
 import NavRouteBridge from "./NavRouteBridge";
+import PerformanceWarmup from "./PerformanceWarmup";
 import AuthProvider from "./AuthProvider";
 import AccountStorageBoundary from "./AccountStorageBoundary";
 import { getAuthContext } from "../lib/auth/server";
@@ -37,6 +38,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <AuthProvider profile={profile}>
           <AccountStorageBoundary profileId={profile?.id || null} role={profile?.role || null}>
             <NavRouteBridge />
+            <PerformanceWarmup enabled={profile?.status === "approved"} />
             {children}
           </AccountStorageBoundary>
         </AuthProvider>
