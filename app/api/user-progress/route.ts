@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { getAuthContext } from "../../../lib/auth/server";
 import { createServerSupabase } from "../../../lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+export const preferredRegion = "icn1";
 
 type AttemptInput = {
   id?: string;
@@ -26,10 +28,9 @@ function safeDate(value: unknown) {
 }
 
 async function currentUser() {
-  const supabase = await createServerSupabase();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) return { supabase, user: null };
-  return { supabase, user: data.user };
+  const [supabase, auth] = await Promise.all([createServerSupabase(), getAuthContext()]);
+  if (!auth.user) return { supabase, user: null as { id: string } | null };
+  return { supabase, user: { id: auth.user.id } };
 }
 
 function mapAttempt(row: any) {
