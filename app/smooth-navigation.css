@@ -1,0 +1,29 @@
+/* Smooth cross-route transitions for primary Capital Forge workspaces. */
+@keyframes cf-route-old {
+  from { opacity: 1; }
+  to { opacity: .985; }
+}
+
+@keyframes cf-route-new {
+  from { opacity: .965; }
+  to { opacity: 1; }
+}
+
+::view-transition-old(root) {
+  animation: 80ms ease-out both cf-route-old;
+}
+
+::view-transition-new(root) {
+  animation: 105ms ease-out both cf-route-new;
+}
+
+html.cf-route-pending {
+  cursor: progress;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
