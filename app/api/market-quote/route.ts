@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const preferredRegion = "icn1";
 
 const aliases:Record<string,string>={
   "NIFTY:NSE":"^NSEI",
@@ -20,12 +21,18 @@ const aliases:Record<string,string>={
   "US10Y":"^TNX"
 };
 
+const quoteCache=new Map<string,{expiresAt:number;body:Record<string,unknown>}>();
+const CACHE_MS=30_000;
+const HEADERS={"Cache-Control":"public, max-age=10, s-maxage=30, stale-while-revalidate=90"};
+
 function n(v:unknown){const x=Number(v);return Number.isFinite(x)?x:null;}
 
 export async function GET(request:Request){
   const {searchParams}=new URL(request.url);
   const requested=String(searchParams.get("symbol")||"AAPL").trim();
   const symbol=requested.toUpperCase();
+  const cached=quoteCache.get(symbol);
+  if(cached&&cached.expiresAt>Date.now())return NextResponse.json(cached.body,{headers:{...HEADERS,"X-Capital-Forge-Cache":"memory-hit"}});
   const ys=aliases[symbol]||requested;
   try{
     const url=new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ys)}`);
@@ -39,6 +46,9 @@ export async function GET(request:Request){
     const previousClose=n(meta.chartPreviousClose??meta.previousClose);
     const change=previousClose==null?null:price-previousClose;
     const percentChange=previousClose&&change!=null?change/previousClose*100:null;
-    return NextResponse.json({configured:true,provider:"yahoo-finance",source:"public-live",symbol:requested,yahooSymbol:ys,quote:{symbol:requested,name:meta.shortName||meta.longName||requested,exchange:meta.fullExchangeName||meta.exchangeName||"",currency:meta.currency||"",price,change,percentChange,open:n(meta.regularMarketOpen),high:n(meta.regularMarketDayHigh),low:n(meta.regularMarketDayLow),previousClose,volume:n(meta.regularMarketVolume),timestamp:typeof meta.regularMarketTime==="number"?new Date(meta.regularMarketTime*1000).toISOString():new Date().toISOString()},generatedAt:new Date().toISOString()});
-  }catch(error){return NextResponse.json({configured:false,error:error instanceof Error?error.message:"Quote unavailable"},{status:502});}
+    const body={configured:true,provider:"yahoo-finance",source:"public-live",symbol:requested,yahooSymbol:ys,quote:{symbol:requested,name:meta.shortName||meta.longName||requested,exchange:meta.fullExchangeName||meta.exchangeName||"",currency:meta.currency||"",price,change,percentChange,open:n(meta.regularMarketOpen),high:n(meta.regularMarketDayHigh),low:n(meta.regularMarketDayLow),previousClose,volume:n(meta.regularMarketVolume),timestamp:typeof meta.regularMarketTime==="number"?new Date(meta.regularMarketTime*1000).toISOString():new Date().toISOString()},generatedAt:new Date().toISOString()};
+    quoteCache.set(symbol,{body,expiresAt:Date.now()+CACHE_MS});
+    if(quoteCache.size>50){const first=quoteCache.keys().next().value as string|undefined;if(first)quoteCache.delete(first);}
+    return NextResponse.json(body,{headers:{...HEADERS,"X-Capital-Forge-Cache":"memory-miss"}});
+  }catch(error){return NextResponse.json({configured:false,error:error instanceof Error?error.message:"Quote unavailable"},{status:502,headers:{"Cache-Control":"public, max-age=5, s-maxage=10"}});}
 }
