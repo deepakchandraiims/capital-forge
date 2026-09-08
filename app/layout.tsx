@@ -7,8 +7,10 @@ import "./interview.css";
 import "./knowledge-vault.css";
 import "./knowledge-dashboard.css";
 import "./auth.css";
+import "./smooth-navigation.css";
 import NavRouteBridge from "./NavRouteBridge";
 import PerformanceWarmup from "./PerformanceWarmup";
+import SmoothTabNavigation from "./SmoothTabNavigation";
 import AuthProvider from "./AuthProvider";
 import AccountStorageBoundary from "./AccountStorageBoundary";
 import { getAuthContext } from "../lib/auth/server";
@@ -31,14 +33,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         status: auth.profile.status
       }
     : null;
+  const approved = profile?.status === "approved";
 
   return (
     <html lang="en">
       <body>
         <AuthProvider profile={profile}>
           <AccountStorageBoundary profileId={profile?.id || null} role={profile?.role || null}>
+            <SmoothTabNavigation enabled={approved} />
             <NavRouteBridge />
-            <PerformanceWarmup enabled={profile?.status === "approved"} />
+            <PerformanceWarmup enabled={approved} />
             {children}
           </AccountStorageBoundary>
         </AuthProvider>
