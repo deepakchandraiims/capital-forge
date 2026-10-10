@@ -11,6 +11,7 @@ type PracticeQuestion = {
   id: string;
   source_record_key?: string | null;
   question_type?: string | null;
+  answer_format?: string | null;
   question: string;
   difficulty?: number | null;
   career_tracks?: string[] | null;
@@ -30,6 +31,39 @@ type PracticeQuestion = {
 
 type Attempt = { id: string; correct: boolean | null; at: string; response?: string; savedResponse?: boolean; durationSeconds?: number; title?: string; category?: string; questionType?: string };
 type Mode = "all" | "recent" | "bookmarked" | "weak" | "custom";
+
+function questionFormat(q: PracticeQuestion) {
+  const type = String(q.question_type || "").trim().toLowerCase();
+  if (q.answer_format) return String(q.answer_format).trim().toLowerCase();
+  if (type === "true_false" || type === "true/false") return "true_false";
+  if (type === "mcq" && Array.isArray(q.options) && q.options.length === 2) {
+    const choices = q.options.map((option) => String(option).trim().toLowerCase());
+    if (choices.includes("true") && choices.includes("false")) return "true_false";
+  }
+  return type;
+}
+
+function isInstantChoice(q: PracticeQuestion) {
+  return ["mcq", "true_false", "true/false"].includes(String(q.question_type || "").trim().toLowerCase());
+}
+
+function resolveCorrectChoice(answer: unknown, options: string[]): string | null {
+  if (answer === null || answer === undefined) return null;
+  if (typeof answer !== "string" && typeof answer !== "boolean" && typeof answer !== "number") return null;
+  const value = String(answer).trim();
+  if (!value) return null;
+  const normalized = (text: string) => text.trim().replace(/\\s+/g, " ").toLowerCase();
+  const exact = options.find((option) => normalized(option) === normalized(value));
+  if (exact !== undefined) return exact;
+  const letter = value.match(/^(?:option\\s*)?([A-Z])[).:]?$/i);
+  if (letter) {
+    const index = letter[1].toUpperCase().charCodeAt(0) - 65;
+    return options[index] ?? null;
+  }
+  const numbered = value.match(/^(?:option\\s*)?([1-9])$/i);
+  if (numbered) return options[Number(numbered[1]) - 1] ?? null;
+  return null;
+}
 
 const PAGE_SIZE = 8;
 const CATALOG_CACHE = "capital-forge-practice-catalog-cache-v2";
@@ -102,6 +136,8 @@ export default function PracticePage() {
   const [customIds, setCustomIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<PracticeQuestion | null>(null);
   const [selectedOption, setSelectedOption] = useState("");
+  const [choiceLocked, setChoiceLocked] = useState(false);
+  const [choiceCorrect, setChoiceCorrect] = useState<boolean | null>(null);
   const [response, setResponse] = useState("");
   const [revealed, setRevealed] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -188,6 +224,36 @@ export default function PracticePage() {
     return baseFiltered;
   }, [baseFiltered, mode, attempts, bookmarks, attemptMap, customIds]);
 
+  // Next keeps the current format (True/False stays True/False; other MCQs
+  // stay MCQs). Within the active filters prefer the same topic and domain,
+  // and prefer questions that the user has not already answered.
+  const nextQuestion = useMemo(() => {
+    if (!selected) return null;
+    const format = questionFormat(selected);
+    const type = String(selected.question_type || "").toLowerCase();
+    const currentIndex = filtered.findIndex((q) => q.id === selected.id);
+    const attempted = new Set(attempts.map((a) => a.id));
+    const candidates = filtered.filter((q) =>
+      q.id !== selected.id &&
+      String(q.question_type || "").toLowerCase() === type &&
+      questionFormat(q) === format
+    );
+    const score = (q: PracticeQuestion) =>
+      (selected.topic_name && q.topic_name === selected.topic_name ? 100 : 0) +
+      (categoryOf(q) === categoryOf(selected) ? 30 : 0) +
+      (!attempted.has(q.id) ? 10 : 0);
+    candidates.sort((a, b) => {
+      const diff = score(b) - score(a);
+      if (diff) return diff;
+      const offset = (q: PracticeQuestion) => {
+        const index = filtered.findIndex((item) => item.id === q.id);
+        return currentIndex < 0 ? index : (index - currentIndex + filtered.length) % filtered.length;
+      };
+      return offset(a) - offset(b);
+    });
+    return candidates[0] || null;
+  }, [selected, filtered, attempts]);
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const solved = new Set(attempts.map((a) => a.id)).size;
@@ -265,7 +331,8 @@ export default function PracticePage() {
   }
 
   async function openQuestion(q: PracticeQuestion) {
-    setSelected(q); setSelectedOption(""); setResponse(""); setRevealed(false); setOpenedAt(Date.now()); setDetailLoading(true);
+    setSelected(q); setSelectedOption(""); setChoiceLocked(false); setChoiceCorrect(null);
+    setResponse(""); setRevealed(false); setOpenedAt(Date.now()); setDetailLoading(true); setToast("");
     try {
       const res = await fetch(`/api/content?type=practice&id=${encodeURIComponent(q.id)}`);
       const data = await res.json();
@@ -275,8 +342,41 @@ export default function PracticePage() {
     finally { setDetailLoading(false); }
   }
 
+  function gradeChoice(option: string) {
+    if (!selected || detailLoading || choiceLocked || !Array.isArray(selected.options)) return;
+    const correct = resolveCorrectChoice(selected.correct_answer, selected.options.map(String));
+    if (correct === null) {
+      setToast("This question has no verifiable correct option. It was not marked incorrect.");
+      return;
+    }
+    const isCorrect = option.trim().toLowerCase() === correct.trim().toLowerCase();
+    setSelectedOption(option);
+    setChoiceCorrect(isCorrect);
+    setChoiceLocked(true);
+    setRevealed(true);
+    const current = attemptMap.get(selected.id);
+    persistAttempt({
+      ...current,
+      id: selected.id,
+      correct: isCorrect,
+      at: new Date().toISOString(),
+      response: option,
+      savedResponse: true,
+      durationSeconds: openedAt ? Math.max(1, Math.round((Date.now() - openedAt) / 1000)) : 0,
+      title: selected.question,
+      category: categoryOf(selected),
+      questionType: selected.question_type || undefined
+    });
+    setToast("");
+  }
+
   function submit() {
     if (!selected || detailLoading) return;
+    if (isInstantChoice(selected) && Array.isArray(selected.options) && selected.options.length) {
+      if (!selectedOption) return setToast("Choose an option first.");
+      gradeChoice(selectedOption);
+      return;
+    }
     if (Array.isArray(selected.options) && selected.options.length) {
       if (!selectedOption) return setToast("Choose an option first.");
       const ok = selectedOption.trim() === String(selected.correct_answer || "").trim();
@@ -300,6 +400,11 @@ export default function PracticePage() {
   }
 
   const responseSaved = selected ? Boolean(attemptMap.get(selected.id)?.savedResponse) : false;
+  const instantChoice = Boolean(selected && isInstantChoice(selected) && Array.isArray(selected.options) && selected.options.length > 0);
+  const canonicalChoice = selected && Array.isArray(selected.options)
+    ? resolveCorrectChoice(selected.correct_answer, selected.options.map(String))
+    : null;
+  const nextTypeLabel = selected && questionFormat(selected) === "true_false" ? "True / False" : "MCQ";
 
   return <div className={styles.shell}>
     <header className={styles.header}>
@@ -367,7 +472,74 @@ export default function PracticePage() {
       </div>
     </main>
 
-    {selected && <div className={styles.modalBackdrop} onMouseDown={(e) => { if (e.currentTarget === e.target) setSelected(null); }}><section className={styles.modal}><div className={styles.modalTop}><div><div className={styles.questionMeta}><span className={styles.tag}>{categoryOf(selected)}</span><span className={`${styles.tag} ${styles.amber}`}>{difficultyLabel(selected.difficulty)}</span><span>{selected.source_record_key}</span></div><h2>{selected.question}</h2></div><button className={styles.close} onClick={() => setSelected(null)}>×</button></div>{detailLoading?<div className={styles.empty}>Loading answer controls…</div>:<>{Array.isArray(selected.options) && selected.options.length ? <div className={styles.options}>{selected.options.map((opt) => <button key={String(opt)} className={selectedOption === String(opt) ? styles.selected : ""} onClick={() => setSelectedOption(String(opt))}>{String(opt)}</button>)}</div> : <textarea className={styles.answerBox} value={response} onChange={(e) => setResponse(e.target.value)} placeholder="Write your answer as if this were a live interview or timed practice round…"/>}<div className={styles.modalActions}><button className={styles.primary} onClick={submit}>Check Answer</button><button className={styles.secondary} onClick={() => setRevealed((x) => !x)}>{revealed ? "Hide Answer" : "Reveal Canonical Answer"}</button></div>{revealed && <div className={styles.result}><b>Canonical Answer</b><p>{selected.model_answer || selected.correct_answer || "Use the expected points below to self-assess your reasoning."}</p>{Array.isArray(selected.expected_points) && selected.expected_points.length > 0 && <ul>{selected.expected_points.map((x) => <li key={x}>{x}</li>)}</ul>}<div className={styles.modalActions}><button className={styles.primary} onClick={saveCurrentResponse}>{responseSaved ? "✓ Response Saved in Dashboard" : "Save This Response"}</button>{(!selected.options || selected.options.length === 0) && <><button className={styles.primary} onClick={() => { saveAttempt(selected.id, true, true); setToast("Saved as solved and understood."); }}>I Got It</button><button className={styles.secondary} onClick={() => { saveAttempt(selected.id, false, true); setToast("Saved as solved and added to weak areas."); }}>Needs Review</button></>}</div></div>}</>}</section></div>}
+    {selected && <div className={styles.modalBackdrop} onMouseDown={(e) => { if (e.currentTarget === e.target) setSelected(null); }}>
+      <section className={styles.modal}>
+        <div className={styles.modalTop}>
+          <div>
+            <div className={styles.questionMeta}>
+              <span className={styles.tag}>{categoryOf(selected)}</span>
+              <span className={`${styles.tag} ${styles.amber}`}>{difficultyLabel(selected.difficulty)}</span>
+              <span>{pretty(selected.question_type)}</span>
+              <span>{selected.source_record_key}</span>
+            </div>
+            <h2>{selected.question}</h2>
+          </div>
+          <button className={styles.close} onClick={() => setSelected(null)} aria-label="Close question">×</button>
+        </div>
+        {detailLoading ? <div className={styles.empty}>Loading answer controls…</div> : <>
+          {Array.isArray(selected.options) && selected.options.length ? (
+            <div className={styles.options}>
+              {selected.options.map((option) => {
+                const value = String(option);
+                const correct = instantChoice && choiceLocked && canonicalChoice === value;
+                const incorrect = instantChoice && choiceLocked && selectedOption === value && !correct;
+                const active = selectedOption === value && !choiceLocked;
+                return <button
+                  key={value}
+                  type="button"
+                  disabled={instantChoice && choiceLocked}
+                  aria-pressed={selectedOption === value}
+                  className={[active ? styles.selected : "", correct ? styles.correctOption : "", incorrect ? styles.wrongOption : ""].filter(Boolean).join(" ")}
+                  onClick={() => instantChoice ? gradeChoice(value) : setSelectedOption(value)}
+                >{correct ? "✓  " : incorrect ? "✕  " : ""}{value}</button>;
+              })}
+            </div>
+          ) : (
+            <textarea className={styles.answerBox} value={response} onChange={(e) => setResponse(e.target.value)} placeholder="Write your answer as if this were a live interview or timed practice round…" />
+          )}
+
+          {instantChoice && choiceLocked && <div role="status" aria-live="polite" className={`${styles.choiceFeedback} ${choiceCorrect ? styles.feedbackCorrect : styles.feedbackWrong}`}>
+            <b>{choiceCorrect ? "✓ Correct answer!" : "✕ Incorrect answer"}</b>
+            <span>{choiceCorrect ? "Well done. Your answer has been saved to your Dashboard." : `Correct answer: ${canonicalChoice || "See explanation below"}. Your attempt has been saved for review.`}</span>
+          </div>}
+
+          <div className={styles.modalActions}>
+            {instantChoice ? (
+              choiceLocked ? (
+                nextQuestion
+                  ? <button className={styles.primary} onClick={() => void openQuestion(nextQuestion)}>Next {nextTypeLabel} Question →</button>
+                  : <span className={styles.nextEmpty}>No more {nextTypeLabel} questions match the current filters.</span>
+              ) : <span className={styles.answerHint}>Select an answer to see instant feedback and continue.</span>
+            ) : <button className={styles.primary} onClick={submit}>Check Answer</button>}
+            <button className={styles.secondary} onClick={() => setRevealed((value) => !value)}>{revealed ? "Hide Answer" : "Reveal Canonical Answer"}</button>
+          </div>
+
+          {revealed && <div className={styles.result}>
+            <b>Canonical Answer</b>
+            <p>{selected.model_answer || selected.correct_answer || "Use the expected points below to self-assess your reasoning."}</p>
+            {Array.isArray(selected.expected_points) && selected.expected_points.length > 0 &&
+              <ul>{selected.expected_points.map((point) => <li key={point}>{point}</li>)}</ul>}
+            {!(instantChoice && choiceLocked) && <div className={styles.modalActions}>
+              <button className={styles.primary} onClick={saveCurrentResponse}>{responseSaved ? "✓ Response Saved in Dashboard" : "Save This Response"}</button>
+              {(!selected.options || selected.options.length === 0) && <>
+                <button className={styles.primary} onClick={() => { saveAttempt(selected.id, true, true); setToast("Saved as solved and understood."); }}>I Got It</button>
+                <button className={styles.secondary} onClick={() => { saveAttempt(selected.id, false, true); setToast("Saved as solved and added to weak areas."); }}>Needs Review</button>
+              </>}
+            </div>}
+          </div>}
+        </>}
+      </section>
+    </div>}
     {toast && <div className={styles.toast} onClick={() => setToast("")}>{toast}</div>}
   </div>;
 }
