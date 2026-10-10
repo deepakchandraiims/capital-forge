@@ -132,13 +132,15 @@ export async function GET(request: Request) {
     const { data: object, error } = await query.maybeSingle();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     if (!object) return NextResponse.json({ ok: false, error: "Knowledge object not found." }, { status: 404 });
-    let sources: any[] = [];
-    if (Array.isArray(object.source_ids) && object.source_ids.length) {
-      const { data } = await content.from("cf_sources").select("id,publisher,title,url,source_type,document_date,authority_tier,notes").in("id", object.source_ids);
-      sources = data || [];
-    }
-    const { data: progress } = await db.from("knowledge_progress").select("*").eq("user_id", user.id).eq("object_id", object.id).maybeSingle();
-    return NextResponse.json({ ok: true, object, sources, progress: progress || null }, { headers: { "Cache-Control": "private, no-store" } });
+    // Published object metadata and account-owned progress are independent:
+    // retrieve them concurrently and never cache private progress at the CDN.
+    const [sourceResult, progressResult] = await Promise.all([
+      Array.isArray(object.source_ids) && object.source_ids.length
+        ? content.from("cf_sources").select("id,publisher,title,url,source_type,document_date,authority_tier,notes").in("id", object.source_ids)
+        : Promise.resolve({ data: [] as any[] }),
+      db.from("knowledge_progress").select("*").eq("user_id", user.id).eq("object_id", object.id).maybeSingle()
+    ]);
+    return NextResponse.json({ ok: true, object, sources: sourceResult.data || [], progress: progressResult.data || null }, { headers: { "Cache-Control": "private, no-store" } });
   }
 
   if (action === "list" || action === "timeline") {
