@@ -27,7 +27,8 @@ export default function MomentumLaunch({sample}:{sample:Sample}) {
       }
     }catch{}
   },[profile?.id]);
-  const day=state?Math.max(1,Math.floor((Date.now()-Date.parse(state.startedAt))/86400000)+1):1;
+  const activeDays=new Set((state?.completed||[]).map(x=>x.day));
+  const day=Math.min(90,Math.max(1,activeDays.size+(activeDays.has(dayString())?0:1)));
   const goal=day<=14?1:day<=30?2:day<=60?3:day<=90?4:5;
   const completed=state?new Set(state.completed.filter(x=>x.day===dayString()).map(x=>x.id)).size:0;
   return <section className="kv-momentum-launch">
@@ -37,7 +38,7 @@ export default function MomentumLaunch({sample}:{sample:Sample}) {
       <h2>Make learning feel lighter.</h2>
       <p>Start with one small challenge, a simple explanation and a quick recall check. Your 90-day program builds up gently. No penalties for skipped days.</p>
       <div className="kv-momentum-progress"><span style={{width:String(Math.min(100,completed/goal*100))+"%"}}/></div>
-      <small>Day {Math.min(day,90)} of 90 · {completed}/{goal} mini lessons today · Accounting, valuation, markets, deals and every Vault universe</small>
+      <small>Active day {day} of 90 · {completed}/{goal} mini lessons today · Accounting, valuation, markets, deals and every Vault universe</small>
     </div>
     <button disabled={!sample} onMouseEnter={()=>{if(sample&&profile?.id)prefetchKVObject(sample.id,profile.id);}}
       onFocus={()=>{if(sample&&profile?.id)prefetchKVObject(sample.id,profile.id);}}
