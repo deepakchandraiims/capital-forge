@@ -272,7 +272,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, resetAt: new Date().toISOString(), deleted: { progress: p.count || 0, sessions: s.count || 0, goals: g.count || 0 } });
   }
 
-  if (["rate", "seen", "bookmark", "reviewLater", "saveResponse"].includes(action)) {
+  if (["rate", "seen", "explored", "bookmark", "reviewLater", "saveResponse"].includes(action)) {
     const objectId = String(body.objectId || "");
     if (!objectId) return NextResponse.json({ ok: false, error: "objectId is required." }, { status: 400 });
     const { data: current } = await db.from("knowledge_progress").select("*").eq("user_id", user.id).eq("object_id", objectId).maybeSingle();
@@ -284,6 +284,9 @@ export async function POST(request: Request) {
     next.updated_at = now;
     if (!next.first_seen_at) next.first_seen_at = now;
     if (action === "seen" && next.status === "unseen") next.status = "seen";
+    // Guided stories are learning, not tests. Record engagement without
+    // inventing right/wrong answers or changing quiz recall accuracy.
+    if (action === "explored" && (next.status === "unseen" || next.status === "seen")) next.status = "learning";
     if (action === "bookmark") next.bookmark = Boolean(body.value);
     if (action === "reviewLater") next.review_later = Boolean(body.value);
     if (action === "saveResponse") {
