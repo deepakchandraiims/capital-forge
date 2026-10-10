@@ -92,11 +92,11 @@ function ObjectView({id}:{id:string}){
       if(data.progress && userId)updateCachedKVProgress(object.id,userId,data.progress);
     } catch(err){setError(err instanceof Error ? err.message : "Could not update progress.");}
   }
-  async function saveRating(rating:"Again"|"Hard"|"Got It"){
+  async function completeStory(){
     if(!object)return false;
     try {
       if(seenWrite.current)await seenWrite.current;
-      const response=await fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"rate",clientKey:clientKey(),objectId:object.id,rating})});
+      const response=await fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"explored",clientKey:clientKey(),objectId:object.id})});
       const data=await response.json();
       if(!response.ok || !data.ok)return false;
       if(data.progress && userId)updateCachedKVProgress(object.id,userId,data.progress);
@@ -104,7 +104,7 @@ function ObjectView({id}:{id:string}){
     } catch {return false;}
   }
 
-  if(busy && !object)return <div className="kv-mode-card kv-fast-skeleton"><div/><div/><div/><p>Preparing your short lesson…</p></div>;
+  if(busy && !object)return <div className="kv-mode-card kv-fast-skeleton"><div/><div/><div/><p>Preparing your story…</p></div>;
   if(!object)return <section className="kv-mode-card kv-empty"><b>{error || "Lesson not found."}</b><button onClick={()=>router.refresh()}>Retry</button></section>;
   return <>
     <div className="kv-filter-row kv-learning-toolbar">
@@ -115,9 +115,9 @@ function ObjectView({id}:{id:string}){
       <button onClick={()=>router.push("/knowledge-vault/quick-scan?object="+encodeURIComponent(object.id))}>Quick Scan →</button>
     </div>
     {error && <p role="alert" className="kv-focus-save-error">{error}</p>}
-    <FocusQuest key={object.id} object={object} onRate={saveRating} onReadFull={openFullNotes}
+    <FocusQuest key={object.id} object={object} onComplete={completeStory} onReadFull={openFullNotes}
       onNext={nextObject?()=>router.push("/knowledge-vault/object/"+nextObject.id):undefined}/>
-    {fullNotes && <div id="kv-full-reference" className="kv-full-reference"><div className="kv-reference-heading"><div><span>DEEP-DIVE REFERENCE</span><h2>Full canonical explanation</h2><p>Read at your own pace. The short challenge is always available above.</p></div><button onClick={()=>setFullNotes(false)}>Collapse ↑</button></div><LearningObjectRenderer object={object} sources={sources}/></div>}
+    {fullNotes && <div id="kv-full-reference" className="kv-full-reference"><div className="kv-reference-heading"><div><span>DEEP-DIVE REFERENCE</span><h2>Full canonical explanation</h2><p>Read at your own pace. The guided story is always available above.</p></div><button onClick={()=>setFullNotes(false)}>Collapse ↑</button></div><LearningObjectRenderer object={object} sources={sources}/></div>}
     <Related object={object} userId={userId} onNext={setNextObject}/>
   </>;
 }
@@ -161,7 +161,7 @@ function Related({object,userId,onNext}:{object:Obj;userId:string;onNext:(item:O
   if(!rows.length)return null;
   return <section className="kv-mode-card kv-related-lessons"><div className="kv-related-title"><div><small>YOUR NEXT SMALL STEP</small><h3>Keep your momentum</h3></div><span>Same category · one lesson at a time</span></div>
     <div className="kv-browser-grid">{rows.map(x=><button key={x.id} className="kv-browser-card" onMouseEnter={()=>prefetchKVObject(x.id,userId)} onFocus={()=>prefetchKVObject(x.id,userId)} onClick={()=>router.push("/knowledge-vault/object/"+x.id)}>
-      <small>{x.category}</small><h3>{x.title}</h3><p>{x.topic||x.content_type}</p><b>Play mini lesson →</b>
+      <small>{x.category}</small><h3>{x.title}</h3><p>{x.topic||x.content_type}</p><b>Explore story →</b>
     </button>)}</div>
   </section>;
 }
