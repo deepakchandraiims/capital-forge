@@ -34,13 +34,19 @@ type Mode = "all" | "recent" | "bookmarked" | "weak" | "custom";
 
 function questionFormat(q: PracticeQuestion) {
   const type = String(q.question_type || "").trim().toLowerCase();
-  if (q.answer_format) return String(q.answer_format).trim().toLowerCase();
-  if (type === "true_false" || type === "true/false") return "true_false";
-  if (type === "mcq" && Array.isArray(q.options) && q.options.length === 2) {
-    const choices = q.options.map((option) => String(option).trim().toLowerCase());
-    if (choices.includes("true") && choices.includes("false")) return "true_false";
+  const format = String(q.answer_format || "").trim().toLowerCase();
+  if (type === "true_false" || type === "true/false" || format === "true_false") return "true_false";
+
+  // Older cached catalogs did not include answer_format or options. They
+  // still include the question text, so recognize binary questions directly.
+  if (type === "mcq") {
+    if (/^true\\s*(?:or|\\/)\\s*false\\s*(?:[:?.–—-]|$)/i.test(q.question.trim())) return "true_false";
+    if (Array.isArray(q.options) && q.options.length === 2) {
+      const choices = q.options.map((option) => String(option).trim().toLowerCase());
+      if (choices.includes("true") && choices.includes("false")) return "true_false";
+    }
   }
-  return type;
+  return format || type;
 }
 
 function isInstantChoice(q: PracticeQuestion) {
@@ -66,7 +72,7 @@ function resolveCorrectChoice(answer: unknown, options: string[]): string | null
 }
 
 const PAGE_SIZE = 8;
-const CATALOG_CACHE = "capital-forge-practice-catalog-cache-v2";
+const CATALOG_CACHE = "capital-forge-practice-catalog-cache-v3";
 const ATTEMPT_STORE = "capital-forge-canonical-practice-v1";
 const BOOKMARK_STORE = "capital-forge-practice-bookmarks-v1";
 const tabs=PRIMARY_NAV;
@@ -178,7 +184,7 @@ export default function PracticePage() {
     if (!questions.length) setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/content?type=practice&view=summary");
+      const res = await fetch("/api/content?type=practice&view=summary&format=3");
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Could not load the canonical practice catalog.");
       const rows = Array.isArray(data.practice) ? data.practice : [];
@@ -224,38 +230,44 @@ export default function PracticePage() {
     return baseFiltered;
   }, [baseFiltered, mode, attempts, bookmarks, attemptMap, customIds]);
 
-  // Next keeps the current format (True/False stays True/False; other MCQs
-  // stay MCQs). Within the active filters prefer the same topic and domain,
-  // and prefer questions that the user has not already answered.
+  // Always continue within the exact choice format. A filter or an old
+  // local catalog must never silently trap a student on the final question.
+  // Prefer same category, then not-yet-attempted questions, then same topic.
   const nextQuestion = useMemo(() => {
-    if (!selected) return null;
+    if (!selected || !questions.length) return null;
     const format = questionFormat(selected);
-    const type = String(selected.question_type || "").toLowerCase();
-    const currentIndex = filtered.findIndex((q) => q.id === selected.id);
-    const attempted = new Set(attempts.map((a) => a.id));
-    const source = mode === "custom" ? filtered : [...filtered, ...baseFiltered];
-    const candidates = Array.from(new Map(source.filter((q) =>
-      q.id !== selected.id &&
-      String(q.question_type || "").toLowerCase() === type &&
-      questionFormat(q) === format
-    ).map((q) => [q.id, q])).values());
-    const filteredIds = new Set(filtered.map((q) => q.id));
-    const score = (q: PracticeQuestion) =>
-      (filteredIds.has(q.id) ? 1000 : 0) +
-      (selected.topic_name && q.topic_name === selected.topic_name ? 100 : 0) +
-      (categoryOf(q) === categoryOf(selected) ? 30 : 0) +
-      (!attempted.has(q.id) ? 10 : 0);
-    candidates.sort((a, b) => {
-      const diff = score(b) - score(a);
-      if (diff) return diff;
-      const offset = (q: PracticeQuestion) => {
-        const index = filtered.findIndex((item) => item.id === q.id);
-        return currentIndex < 0 ? index : (index - currentIndex + filtered.length) % filtered.length;
+    const type = String(selected.question_type || "").trim().toLowerCase();
+    const attempted = new Set(attempts.map((attempt) => attempt.id));
+    const withinFilters = new Set(filtered.map((question) => question.id));
+    const withinBaseFilters = new Set(baseFiltered.map((question) => question.id));
+    const currentIndex = questions.findIndex((question) => question.id === selected.id);
+
+    const candidates = questions.filter((question) =>
+      question.id !== selected.id &&
+      String(question.question_type || "").trim().toLowerCase() === type &&
+      questionFormat(question) === format
+    );
+
+    function score(question: PracticeQuestion) {
+      return (categoryOf(question) === categoryOf(selected) ? 10000 : 0) +
+        (!attempted.has(question.id) ? 4000 : 0) +
+        (selected.topic_name && question.topic_name === selected.topic_name ? 1500 : 0) +
+        (withinFilters.has(question.id) ? 700 : 0) +
+        (withinBaseFilters.has(question.id) ? 250 : 0);
+    }
+
+    candidates.sort((first, second) => {
+      const priority = score(second) - score(first);
+      if (priority !== 0) return priority;
+      // Stable, cyclic catalog order; don't jump back to the first question.
+      const distance = (question: PracticeQuestion) => {
+        const position = questions.findIndex((row) => row.id === question.id);
+        return currentIndex < 0 ? position : (position - currentIndex + questions.length) % questions.length;
       };
-      return offset(a) - offset(b);
+      return distance(first) - distance(second);
     });
     return candidates[0] || null;
-  }, [selected, filtered, baseFiltered, attempts, mode]);
+  }, [selected, questions, filtered, baseFiltered, attempts]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
