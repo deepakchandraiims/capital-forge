@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import KnowledgeVaultShell from "./KnowledgeVaultShell";
 import MomentumLaunch from "./MomentumLaunch";
+import { useAuthProfile } from "../AuthProvider";
+import { prefetchKVObject } from "./KVClientCache";
 
 type KnowledgeObject = { id:string; title:string; universe:string; category:string; category_slug:string; topic?:string|null; difficulty?:number|null; content_type?:string|null; estimated_time_seconds?:number|null; source_kind?:string|null; quality_score?:number|null };
 type Landing = { dataset:{expected:number;categories:number;sourceGrounded:number;authored:number;unique:number;variants:number;databaseObjects:number;readyForImport:boolean}; universes:Array<{name:string;slug:string;categories:number}>; featured:KnowledgeObject[]; progress:{reviewed:number;mastered:number;learningReview:number;unseen:number;recallAccuracy:number;reviewDue:number}; recent:Array<KnowledgeObject & {progress?:any}>; activeSession?:any; goal?:any };
@@ -26,6 +28,7 @@ function minutes(seconds?:number|null){return Math.max(1,Math.round(Number(secon
 
 export default function KnowledgeVaultPage(){
   const router=useRouter();
+  const profile=useAuthProfile();
   const [data,setData]=useState<Landing|null>(null);
   const [search,setSearch]=useState("");
   const [rows,setRows]=useState<KnowledgeObject[]>([]);
@@ -66,7 +69,7 @@ export default function KnowledgeVaultPage(){
           ]).map((u)=>{const meta=universeCopy[u.name];return <button className={`kv-universe-card ${meta?.tone||"blue"}`} key={u.name} onClick={()=>router.push(`/knowledge-vault/universe/${u.slug}`)}><span className="kv-universe-icon">{meta?.icon}</span><h3>{u.name}</h3><small>{u.categories} categories</small><p>{meta?.copy}</p><b>Explore →</b></button>})}</div>
 
           <div className="kv-discovery-head"><div>{["Featured","Recent","Popular","By Difficulty"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="kv-list-controls"><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search knowledge objects..."/><select><option>Sort: Recommended</option><option>Newest</option><option>Difficulty</option></select></div></div>
-          <section className="kv-object-list">{loading?<div className="kv-empty">Loading Knowledge Vault…</div>:rows.length?rows.map((o)=><button className="kv-object-row" key={o.id} onClick={()=>router.push(`/knowledge-vault/object/${o.id}`)}><span className="kv-row-icon">{universeCopy[o.universe]?.icon||"◇"}</span><span className="kv-row-copy"><b>{o.title}</b><small>{o.topic||o.category}</small></span><span className="kv-pill">{o.category}</span><span className="kv-difficulty">D{o.difficulty||5}</span><span className="kv-time">{minutes(o.estimated_time_seconds)} min</span><span className={o.source_kind==="source_grounded"?"kv-source source":"kv-source authored"}>{o.source_kind==="source_grounded"?"Verified":"Authored"}</span><strong>Play mini lesson →</strong></button>):<div className="kv-empty"><b>Knowledge Vault infrastructure is ready.</b><p>The canonical CF3 file has not been imported yet, so no production learning objects are being fabricated. Import <code>capital_forge_3000_master.jsonl</code> when supplied.</p></div>}</section>
+          <section className="kv-object-list">{loading?<div className="kv-empty">Loading Knowledge Vault…</div>:rows.length?rows.map((o)=><button className="kv-object-row" key={o.id} onMouseEnter={()=>{if(profile?.id)prefetchKVObject(o.id,profile.id);}} onFocus={()=>{if(profile?.id)prefetchKVObject(o.id,profile.id);}} onClick={()=>router.push(`/knowledge-vault/object/${o.id}`)}><span className="kv-row-icon">{universeCopy[o.universe]?.icon||"◇"}</span><span className="kv-row-copy"><b>{o.title}</b><small>{o.topic||o.category}</small></span><span className="kv-pill">{o.category}</span><span className="kv-difficulty">D{o.difficulty||5}</span><span className="kv-time">{minutes(o.estimated_time_seconds)} min</span><span className={o.source_kind==="source_grounded"?"kv-source source":"kv-source authored"}>{o.source_kind==="source_grounded"?"Verified":"Authored"}</span><strong>Play mini lesson →</strong></button>):<div className="kv-empty"><b>Knowledge Vault infrastructure is ready.</b><p>The canonical CF3 file has not been imported yet, so no production learning objects are being fabricated. Import <code>capital_forge_3000_master.jsonl</code> when supplied.</p></div>}</section>
           <section className="kv-todays-five"><div><small>DAILY MEMORY BUILDER</small><h2>Today's 5</h2><p>One Technical, one Market History, one Trade/Deal, one Crisis/Event and one Finance Fact.</p></div><button disabled={!data?.dataset.databaseObjects} onClick={()=>router.push("/knowledge-vault/quick-scan?count=5&today=1")}>Start Today's 5 →</button></section>
         </section>
 
