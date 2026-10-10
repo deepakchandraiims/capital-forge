@@ -50,6 +50,7 @@ export default function FocusQuest({
   const [hint, setHint] = useState(false);
   const [hookShown, setHookShown] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [awarded, setAwarded] = useState(false);
   const [message, setMessage] = useState("");
   const [momentum, setMomentum] = useState<Momentum | null>(null);
   const content = object.content && typeof object.content === "object" ? object.content : {};
@@ -66,7 +67,10 @@ export default function FocusQuest({
   const variants = reverse
     ? [{ value: "trap" as const, text: trap }, { value: "good" as const, text: answer }]
     : [{ value: "good" as const, text: answer }, { value: "trap" as const, text: trap }];
-  const programDay = momentum ? Math.max(1, Math.floor((Date.now() - Date.parse(momentum.startedAt)) / 86400000) + 1) : 1;
+  // Count days actually practiced, not calendar days since signup. Someone
+  // returning after a break keeps the same gentle goal, with no guilt.
+  const completedDays = new Set((momentum?.completed || []).map((item) => item.day));
+  const programDay = Math.min(90, Math.max(1, completedDays.size + (completedDays.has(today()) ? 0 : 1)));
   const goal = dailyGoal(programDay);
   const todayCount = momentum ? new Set(momentum.completed.filter((x) => x.day === today()).map((x) => x.id)).size : 0;
   const xp = momentum ? momentum.completed.reduce((sum, item) => sum + 10 + (item.correct ? 5 : 0), 0) : 0;
@@ -80,7 +84,7 @@ export default function FocusQuest({
   }, [profile?.id]);
 
   useEffect(() => {
-    setStage("choose"); setChoice(null); setHint(false); setHookShown(false); setSaving(false); setMessage("");
+    setStage("choose"); setChoice(null); setHint(false); setHookShown(false); setSaving(false); setMessage(""); setAwarded(false);
   }, [object.id]);
 
   async function finish(confident: boolean) {
@@ -95,10 +99,12 @@ export default function FocusQuest({
       if (!saved) throw new Error("Could not save this attempt. Try again.");
       const current = readMomentum();
       const complete = { id: String(object.id), day: today(), rating, correct: choice === "good" ? true : choice === "trap" ? false : null };
-      if (!current.completed.some((x) => x.id === complete.id)) {
+      const newCompletion = !current.completed.some((x) => x.id === complete.id);
+      if (newCompletion) {
         current.completed = [...current.completed, complete].slice(-900);
         localStorage.setItem(MOMENTUM_KEY, JSON.stringify(current));
       }
+      setAwarded(newCompletion);
       setMomentum({ ...current });
       setStage("done");
     } catch (error) {
@@ -110,7 +116,7 @@ export default function FocusQuest({
 
   return <section className="kv-focus" aria-label="Focus Quest learning mode">
     <div className="kv-focus-top">
-      <div><span className="kv-focus-eyebrow">FOCUS QUEST · 90-DAY ON-RAMP</span><h2>One small win at a time</h2><p>Make a call. Understand the mechanism. Remember one thing.</p></div>
+      <div><span className="kv-focus-eyebrow">FOCUS QUEST · 90-DAY ON-RAMP</span><h2>{field(object.title) || "One small win at a time"}</h2><p>One small win: make a call, understand it, remember it.</p></div>
       <div className="kv-focus-metrics"><span>Day <b>{Math.min(programDay, 90)}/90</b></span><span>Today <b>{todayCount}/{goal}</b></span><span><b>{xp}</b> XP</span></div>
     </div>
     <div className="kv-focus-progress" aria-label="Your daily learning goal"><span style={{ width: String(Math.min(100, todayCount / goal * 100)) + "%" }}/></div>
@@ -181,11 +187,11 @@ export default function FocusQuest({
       <span className="kv-focus-trophy">✦</span>
       <h3>Today's brain rep: done.</h3>
       <p>Your recall rating was saved. {isDoneAlready ? "That's one more concept practiced." : "Come back for another small round when you feel ready."}</p>
-      <div className="kv-focus-reward">+10 XP {choice === "good" ? "· +5 first-try bonus" : ""}</div>
+      <div className="kv-focus-reward">{awarded ? "+10 XP" : "Revisited · still valuable"} {awarded && choice === "good" ? "· +5 first-try bonus" : ""}</div>
       {todayCount >= goal ? <p>Daily target reached. Anything extra is optional.</p> : <p>{goal - todayCount} more mini {goal - todayCount === 1 ? "lesson" : "lessons"} to reach your gentle daily goal.</p>}
       <div className="kv-focus-controls">{onNext && <button className="kv-focus-primary" onClick={onNext}>Next little challenge →</button>}<button className="kv-focus-plain" onClick={onReadFull}>Review full lesson</button></div>
     </div>}
 
-    <footer className="kv-focus-footer">Weeks 1–2: 1 object/day · Weeks 3–4: 2 · Month 2: 3 · Month 3: 4 · After: 5. No penalties for missed days. XP is tracked on this device.</footer>
+    <footer className="kv-focus-footer">First 14 active days: 1 lesson/day · Days 15–30: 2 · 31–60: 3 · 61–90: 4. Breaks never raise your target. XP is on this device.</footer>
   </section>;
 }
