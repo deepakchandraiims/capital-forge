@@ -21,7 +21,7 @@ export default function KnowledgeVaultRoutePage(){
   const section=slug[0]||"learn";
   const detail=slug[1]||"";
   const [search,setSearch]=useState("");
-  return <KnowledgeVaultShell search={search} onSearch={setSearch}><main className="kv-mode-workspace"><div className="kv-mode-head"><div><div className="kv-crumb">Knowledge Vault <span>›</span> {titleCase(section)}</div><h1>{section==="object"?"Learning Object":section==="quick-scan"?"Quick Scan":section==="universe"?titleCase(detail):section==="category"?titleCase(detail):titleCase(section)}</h1><p>{section==="quick-scan"?"Fast recall with saved responses, spaced repetition and confidence rating.":section==="timeline"?"Financial history from dated, source-grounded objects.":section==="saved"?"Bookmarks, saved responses, review-later items, mastered objects and recent history.":"Browse, understand and connect finance knowledge."}</p></div><div className="kv-mode-tabs">{modeTabs.map(x=><button key={x} className={section===x.toLowerCase().replace(" ","-")?"active":""} onClick={()=>router.push(routeFor(x))}>{x}</button>)}</div></div><div className="kv-mode-panel">{section==="object"?<ObjectView id={detail}/>:section==="quick-scan"?<QuickScan/>:section==="quiz"?<Quiz/>:section==="timeline"?<Timeline search={search}/>:section==="saved"?<Saved/>:section==="universe"?<Universe slug={detail}/>:section==="progress"?<ProgressRedirect/>:<Learn category={section==="category"?detail:""} search={search}/>}</div></main></KnowledgeVaultShell>;
+  return <KnowledgeVaultShell search={search} onSearch={setSearch}><main className="kv-mode-workspace"><div className="kv-mode-head"><div><div className="kv-crumb">Knowledge Vault <span>›</span> {titleCase(section)}</div><h1>{section==="object"?"Learning Object":section==="quick-scan"?"Quick Scan":section==="universe"?titleCase(detail):section==="category"?titleCase(detail):titleCase(section)}</h1><p>{section==="quick-scan"?"Fast recall with saved responses, spaced repetition and confidence rating.":section==="timeline"?"Financial history from dated, source-grounded objects.":section==="saved"?"Bookmarks, saved responses, review-later items, mastered objects and recent history.":"Browse, understand and connect finance knowledge."}</p></div><div className="kv-mode-tabs">{modeTabs.map(x=><button key={x} className={section===x.toLowerCase().replace(" ","-")?"active":""} onClick={()=>router.push(routeFor(x))}>{x}</button>)}</div></div><div className="kv-mode-panel">{section==="object"?<ObjectView key={detail} id={detail}/>:section==="quick-scan"?<QuickScan/>:section==="quiz"?<Quiz/>:section==="timeline"?<Timeline search={search}/>:section==="saved"?<Saved/>:section==="universe"?<Universe slug={detail}/>:section==="progress"?<ProgressRedirect/>:<Learn category={section==="category"?detail:""} search={search}/>}</div></main></KnowledgeVaultShell>;
 }
 
 function Empty({text="No matching Knowledge Vault objects are available."}:{text?:string}){return <div className="kv-mode-card kv-empty"><b>{text}</b><p>Try another category, filter or learning mode.</p></div>}
@@ -72,6 +72,10 @@ function ObjectView({id}:{id:string}){
     return()=>{active=false;};
   },[id,userId]);
 
+  function openFullNotes(){
+    setFullNotes(true);
+    requestAnimationFrame(()=>document.getElementById("kv-full-reference")?.scrollIntoView({behavior:"smooth",block:"start"}));
+  }
   async function toggle(action:"bookmark"|"reviewLater",value:boolean){
     if(!object)return;
     try {
@@ -104,9 +108,9 @@ function ObjectView({id}:{id:string}){
       <button onClick={()=>router.push("/knowledge-vault/quick-scan?object="+encodeURIComponent(object.id))}>Quick Scan →</button>
     </div>
     {error && <p role="alert" className="kv-focus-save-error">{error}</p>}
-    <FocusQuest key={object.id} object={object} onRate={saveRating} onReadFull={()=>setFullNotes(true)}
+    <FocusQuest key={object.id} object={object} onRate={saveRating} onReadFull={openFullNotes}
       onNext={nextObject?()=>router.push("/knowledge-vault/object/"+nextObject.id):undefined}/>
-    {fullNotes && <div className="kv-full-reference"><div className="kv-reference-heading"><div><span>DEEP-DIVE REFERENCE</span><h2>Full canonical explanation</h2><p>Read at your own pace. The short challenge is always available above.</p></div><button onClick={()=>setFullNotes(false)}>Collapse ↑</button></div><LearningObjectRenderer object={object} sources={sources}/></div>}
+    {fullNotes && <div id="kv-full-reference" className="kv-full-reference"><div className="kv-reference-heading"><div><span>DEEP-DIVE REFERENCE</span><h2>Full canonical explanation</h2><p>Read at your own pace. The short challenge is always available above.</p></div><button onClick={()=>setFullNotes(false)}>Collapse ↑</button></div><LearningObjectRenderer object={object} sources={sources}/></div>}
     <Related object={object} userId={userId} onNext={setNextObject}/>
   </>;
 }
@@ -137,7 +141,9 @@ function Related({object,userId,onNext}:{object:Obj;userId:string;onNext:(item:O
     let active=true;
     void getRelatedRows(object.category_slug).then(items=>{
       if(!active)return;
-      const next=items.filter(x=>x.id!==object.id).slice(0,3);
+      const currentIndex=items.findIndex(x=>x.id===object.id);
+      const ordered=currentIndex>=0 ? [...items.slice(currentIndex+1),...items.slice(0,currentIndex)] : items;
+      const next=ordered.filter(x=>x.id!==object.id).slice(0,3);
       setRows(next);
       onNext(next[0] || null);
       // First follow-on lesson loads in the background while user studies.
