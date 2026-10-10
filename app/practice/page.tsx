@@ -52,15 +52,15 @@ function resolveCorrectChoice(answer: unknown, options: string[]): string | null
   if (typeof answer !== "string" && typeof answer !== "boolean" && typeof answer !== "number") return null;
   const value = String(answer).trim();
   if (!value) return null;
-  const normalized = (text: string) => text.trim().replace(/\\s+/g, " ").toLowerCase();
+  const normalized = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
   const exact = options.find((option) => normalized(option) === normalized(value));
   if (exact !== undefined) return exact;
-  const letter = value.match(/^(?:option\\s*)?([A-Z])[).:]?$/i);
+  const letter = value.match(/^(?:option\s*)?([A-Z])[).:]?$/i);
   if (letter) {
     const index = letter[1].toUpperCase().charCodeAt(0) - 65;
     return options[index] ?? null;
   }
-  const numbered = value.match(/^(?:option\\s*)?([1-9])$/i);
+  const numbered = value.match(/^(?:option\s*)?([1-9])$/i);
   if (numbered) return options[Number(numbered[1]) - 1] ?? null;
   return null;
 }
@@ -233,12 +233,15 @@ export default function PracticePage() {
     const type = String(selected.question_type || "").toLowerCase();
     const currentIndex = filtered.findIndex((q) => q.id === selected.id);
     const attempted = new Set(attempts.map((a) => a.id));
-    const candidates = filtered.filter((q) =>
+    const source = mode === "custom" ? filtered : [...filtered, ...baseFiltered];
+    const candidates = Array.from(new Map(source.filter((q) =>
       q.id !== selected.id &&
       String(q.question_type || "").toLowerCase() === type &&
       questionFormat(q) === format
-    );
+    ).map((q) => [q.id, q])).values());
+    const filteredIds = new Set(filtered.map((q) => q.id));
     const score = (q: PracticeQuestion) =>
+      (filteredIds.has(q.id) ? 1000 : 0) +
       (selected.topic_name && q.topic_name === selected.topic_name ? 100 : 0) +
       (categoryOf(q) === categoryOf(selected) ? 30 : 0) +
       (!attempted.has(q.id) ? 10 : 0);
@@ -252,7 +255,7 @@ export default function PracticePage() {
       return offset(a) - offset(b);
     });
     return candidates[0] || null;
-  }, [selected, filtered, attempts]);
+  }, [selected, filtered, baseFiltered, attempts, mode]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
