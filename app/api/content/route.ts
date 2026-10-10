@@ -100,7 +100,7 @@ export async function GET(request: Request) {
   const enrich = (rows: any[]) => rows.map((row: any) => ({ ...row, ...(row.topic_id ? (taxonomyByTopic.get(row.topic_id) || {}) : {}) }));
 
   const QUESTION_FIELDS = "id,domain_id,topic_id,question_type,question,difficulty,career_tracks,seniority,expected_time_seconds,options,correct_answer,short_answer,model_answer,expected_points,rubric,calculation_required,quality_score,status,source_record_key,origin_content_type,source_ids";
-  const QUESTION_SUMMARY_FIELDS = "id,domain_id,topic_id,question_type,question,difficulty,career_tracks,seniority,expected_time_seconds,calculation_required,quality_score,status,source_record_key,origin_content_type";
+  const QUESTION_SUMMARY_FIELDS = "id,domain_id,topic_id,question_type,question,difficulty,career_tracks,seniority,expected_time_seconds,options,calculation_required,quality_score,status,source_record_key,origin_content_type";
   const CASE_FIELDS = "id,domain_id,topic_id,title,case_type,industry,difficulty,scenario,facts,financial_data,questions,solution,rubric,source_ids,source_model,quality_score,status,source_record_key,origin_content_type";
 
   if (detailId && (type === "practice" || type === "interview")) {
@@ -154,7 +154,23 @@ export async function GET(request: Request) {
   if (type === "all" || type === "practice" || type === "interview") {
     const { rows, error } = await fetchPublished("cf_questions", view === "summary" ? QUESTION_SUMMARY_FIELDS : QUESTION_FIELDS);
     if (error) return NextResponse.json({ ok: false, stage: "questions", error: error.message }, { status: 500 });
-    const allQuestions = enrich(rows);
+    // Only expose the answer format, not bulky option lists, in the summary catalog.
+    // This keeps True/False drills in a True/False sequence even though both
+    // True/False and four-option questions use the "mcq" database type.
+    const allQuestions = enrich(rows).map((row: any) => {
+      if (view !== "summary") return row;
+      const { options, ...summary } = row;
+      const values = Array.isArray(options) ? options.map((option: unknown) =>
+        typeof option === "string" ? option.trim().toLowerCase() : ""
+      ) : [];
+      const isTrueFalse = values.length === 2 && values.includes("true") && values.includes("false");
+      return {
+        ...summary,
+        answer_format: row.question_type === "mcq"
+          ? (isTrueFalse ? "true_false" : "mcq")
+          : row.question_type
+      };
+    });
     const interview = allQuestions.filter((row: any) => row.origin_content_type === "interview_question");
     const practice = allQuestions.filter((row: any) => row.origin_content_type !== "interview_question");
     if (type === "all" || type === "practice") result.practice = practice;
