@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import KnowledgeVaultShell from "../KnowledgeVaultShell";
 import LearningObjectRenderer from "../LearningObjectRenderer";
+import FocusQuest from "../FocusQuest";
+import { useAuthProfile } from "../../AuthProvider";
+import { cachedKVObject, loadKVObject, prefetchKVObject, updateCachedKVProgress } from "../KVClientCache";
 
 type Obj = Record<string, any>;
 const modeTabs=["Quick Scan","Learn","Quiz","Timeline","Saved"];
@@ -25,14 +28,130 @@ function Empty({text="No matching Knowledge Vault objects are available."}:{text
 
 function ObjectView({id}:{id:string}){
   const router=useRouter();
-  const [object,setObject]=useState<Obj|null>(null);const [sources,setSources]=useState<any[]>([]);const [busy,setBusy]=useState(true);const [bookmarked,setBookmarked]=useState(false);const [reviewLater,setReviewLater]=useState(false);
-  useEffect(()=>{(async()=>{setBusy(true);const res=await fetch(`/api/knowledge-vault?action=object&id=${encodeURIComponent(id)}`);const data=await res.json();if(data.ok){setObject(data.object);setSources(data.sources||[]);await fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"seen",clientKey:clientKey(),objectId:data.object.id})});}setBusy(false);})();},[id]);
-  async function toggle(action:"bookmark"|"reviewLater",value:boolean){if(!object)return;await fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,clientKey:clientKey(),objectId:object.id,value})});if(action==="bookmark")setBookmarked(value);else setReviewLater(value);}
-  if(busy)return <div className="kv-mode-card">Loading object…</div>;if(!object)return <Empty/>;
-  return <><div className="kv-filter-row"><button onClick={()=>router.back()}>← Back</button><button onClick={()=>toggle("bookmark",!bookmarked)}>{bookmarked?"★ Bookmarked":"☆ Bookmark"}</button><button onClick={()=>toggle("reviewLater",!reviewLater)}>{reviewLater?"✓ Review Later":"↻ Review Later"}</button><button onClick={()=>router.push(`/knowledge-vault/quick-scan?object=${object.id}`)}>Quick Scan This →</button></div><LearningObjectRenderer object={object} sources={sources}/><Related object={object}/></>;
+  const profile=useAuthProfile();
+  const userId=profile?.id || "";
+  const cached = cachedKVObject(id,userId);
+  const [object,setObject]=useState<Obj|null>(cached?.object || null);
+  const [sources,setSources]=useState<any[]>(cached?.sources || []);
+  const [busy,setBusy]=useState(!cached);
+  const [error,setError]=useState("");
+  const [bookmarked,setBookmarked]=useState(Boolean(cached?.progress?.bookmark));
+  const [reviewLater,setReviewLater]=useState(Boolean(cached?.progress?.review_later));
+  const [fullNotes,setFullNotes]=useState(false);
+  const [nextObject,setNextObject]=useState<Obj|null>(null);
+
+  useEffect(()=>{
+    if(!id || !userId)return;
+    let active=true;
+    const hit=cachedKVObject(id,userId);
+    setObject(hit?.object || null);
+    setSources(hit?.sources || []);
+    setBookmarked(Boolean(hit?.progress?.bookmark));
+    setReviewLater(Boolean(hit?.progress?.review_later));
+    setBusy(!hit);
+    setError("");
+    setFullNotes(false);
+    setNextObject(null);
+    (async()=>{
+      try{
+        const data=await loadKVObject(id,userId);
+        if(!active)return;
+        setObject(data.object);
+        setSources(data.sources || []);
+        setBookmarked(Boolean(data.progress?.bookmark));
+        setReviewLater(Boolean(data.progress?.review_later));
+        setBusy(false);
+        // Do not wait for progress write before painting the lesson.
+        void fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"seen",clientKey:clientKey(),objectId:data.object.id})}).catch(()=>{});
+      }catch(err){
+        if(!active)return;
+        setError(err instanceof Error ? err.message : "Lesson could not load.");
+        setBusy(false);
+      }
+    })();
+    return()=>{active=false;};
+  },[id,userId]);
+
+  async function toggle(action:"bookmark"|"reviewLater",value:boolean){
+    if(!object)return;
+    try {
+      const response=await fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,clientKey:clientKey(),objectId:object.id,value})});
+      const data=await response.json();
+      if(!response.ok || !data.ok)throw new Error(data.error || "Could not update progress.");
+      if(action==="bookmark")setBookmarked(value);else setReviewLater(value);
+      if(data.progress && userId)updateCachedKVProgress(object.id,userId,data.progress);
+    } catch(err){setError(err instanceof Error ? err.message : "Could not update progress.");}
+  }
+  async function saveRating(rating:"Again"|"Hard"|"Got It"){
+    if(!object)return false;
+    try {
+      const response=await fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"rate",clientKey:clientKey(),objectId:object.id,rating})});
+      const data=await response.json();
+      if(!response.ok || !data.ok)return false;
+      if(data.progress && userId)updateCachedKVProgress(object.id,userId,data.progress);
+      return true;
+    } catch {return false;}
+  }
+
+  if(busy && !object)return <div className="kv-mode-card kv-fast-skeleton"><div/><div/><div/><p>Preparing your short lesson…</p></div>;
+  if(!object)return <section className="kv-mode-card kv-empty"><b>{error || "Lesson not found."}</b><button onClick={()=>router.refresh()}>Retry</button></section>;
+  return <>
+    <div className="kv-filter-row kv-learning-toolbar">
+      <button onClick={()=>router.back()}>← Back</button>
+      <button onClick={()=>void toggle("bookmark",!bookmarked)}>{bookmarked?"★ Bookmarked":"☆ Bookmark"}</button>
+      <button onClick={()=>void toggle("reviewLater",!reviewLater)}>{reviewLater?"✓ Review Later":"↻ Review Later"}</button>
+      <button onClick={()=>setFullNotes(x=>!x)}>{fullNotes?"Hide Full Notes":"Read Full Notes"}</button>
+      <button onClick={()=>router.push("/knowledge-vault/quick-scan?object="+encodeURIComponent(object.id))}>Quick Scan →</button>
+    </div>
+    {error && <p role="alert" className="kv-focus-save-error">{error}</p>}
+    <FocusQuest key={object.id} object={object} onRate={saveRating} onReadFull={()=>setFullNotes(true)}
+      onNext={nextObject?()=>router.push("/knowledge-vault/object/"+nextObject.id):undefined}/>
+    {fullNotes && <div className="kv-full-reference"><div className="kv-reference-heading"><div><span>DEEP-DIVE REFERENCE</span><h2>Full canonical explanation</h2><p>Read at your own pace. The short challenge is always available above.</p></div><button onClick={()=>setFullNotes(false)}>Collapse ↑</button></div><LearningObjectRenderer object={object} sources={sources}/></div>}
+    <Related object={object} userId={userId} onNext={setNextObject}/>
+  </>;
 }
 
-function Related({object}:{object:Obj}){const router=useRouter();const [rows,setRows]=useState<Obj[]>([]);useEffect(()=>{if(!object?.category_slug)return;(async()=>{const res=await fetch(`/api/knowledge-vault?action=list&category=${encodeURIComponent(object.category_slug)}&limit=4`);const data=await res.json();if(data.ok)setRows((data.objects||[]).filter((x:Obj)=>x.id!==object.id).slice(0,3));})();},[object]);if(!rows.length)return null;return <section className="kv-mode-card" style={{marginTop:12}}><h3>Continue the chain</h3><div className="kv-browser-grid">{rows.map(x=><button key={x.id} className="kv-browser-card" onClick={()=>router.push(`/knowledge-vault/object/${x.id}`)}><small>{x.category}</small><h3>{x.title}</h3><p>{x.topic||x.content_type}</p></button>)}</div></section>}
+const relatedCache=new Map<string,{at:number;rows:Obj[]}>();
+const relatedInFlight=new Map<string,Promise<Obj[]>>();
+async function getRelatedRows(category:string):Promise<Obj[]>{
+  const hit=relatedCache.get(category);
+  if(hit && Date.now()-hit.at<300000)return hit.rows;
+  const pending=relatedInFlight.get(category);
+  if(pending)return pending;
+  const promise=(async()=>{
+    const response=await fetch("/api/knowledge-vault?action=list&category="+encodeURIComponent(category)+"&limit=20");
+    const data=await response.json();
+    if(!response.ok||!data.ok)throw new Error(data.error || "No related lessons.");
+    const rows=Array.isArray(data.objects)?data.objects:[];
+    relatedCache.set(category,{at:Date.now(),rows});
+    return rows;
+  })();
+  relatedInFlight.set(category,promise);
+  try{return await promise;}finally{relatedInFlight.delete(category);}
+}
+function Related({object,userId,onNext}:{object:Obj;userId:string;onNext:(item:Obj|null)=>void}){
+  const router=useRouter();
+  const [rows,setRows]=useState<Obj[]>([]);
+  useEffect(()=>{
+    if(!object?.category_slug)return;
+    let active=true;
+    void getRelatedRows(object.category_slug).then(items=>{
+      if(!active)return;
+      const next=items.filter(x=>x.id!==object.id).slice(0,3);
+      setRows(next);
+      onNext(next[0] || null);
+      // First follow-on lesson loads in the background while user studies.
+      if(next[0] && userId)prefetchKVObject(next[0].id,userId);
+    }).catch(()=>{});
+    return()=>{active=false;};
+  },[object.id,object.category_slug,userId]);
+  if(!rows.length)return null;
+  return <section className="kv-mode-card kv-related-lessons"><div className="kv-related-title"><div><small>YOUR NEXT SMALL STEP</small><h3>Keep your momentum</h3></div><span>Same category · one lesson at a time</span></div>
+    <div className="kv-browser-grid">{rows.map(x=><button key={x.id} className="kv-browser-card" onMouseEnter={()=>prefetchKVObject(x.id,userId)} onFocus={()=>prefetchKVObject(x.id,userId)} onClick={()=>router.push("/knowledge-vault/object/"+x.id)}>
+      <small>{x.category}</small><h3>{x.title}</h3><p>{x.topic||x.content_type}</p><b>Play mini lesson →</b>
+    </button>)}</div>
+  </section>;
+}
 
 function Learn({category,search}:{category:string;search:string}){
   const router=useRouter();
