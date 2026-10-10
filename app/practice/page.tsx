@@ -40,7 +40,7 @@ function questionFormat(q: PracticeQuestion) {
   // Older cached catalogs did not include answer_format or options. They
   // still include the question text, so recognize binary questions directly.
   if (type === "mcq") {
-    if (/^true\\s*(?:or|\\/)\\s*false\\s*(?:[:?.–—-]|$)/i.test(q.question.trim())) return "true_false";
+    if (/^true\s*(?:or|\/)\s*false\s*(?:[:?.–—-]|$)/i.test(q.question.trim())) return "true_false";
     if (Array.isArray(q.options) && q.options.length === 2) {
       const choices = q.options.map((option) => String(option).trim().toLowerCase());
       if (choices.includes("true") && choices.includes("false")) return "true_false";
