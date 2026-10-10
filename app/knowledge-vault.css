@@ -93,3 +93,17 @@
 .kv-related-lessons .kv-browser-grid{grid-template-columns:1fr}
 }
 @media(prefers-reduced-motion:reduce){.kv-focus-progress span,.kv-focus-choices button{transition:none!important}}
+
+/* A visible launch pad for the 90-day learning mode. */
+.kv-momentum-launch{display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:17px;align-items:center;border:1px solid #d7e4f5;border-radius:16px;background:linear-gradient(108deg,#edf5ff,#fff 68%);padding:22px 24px;margin:18px 0 25px;box-shadow:0 9px 26px rgba(44,108,201,.07)}
+.kv-momentum-icon{width:46px;height:46px;display:grid;place-items:center;border-radius:14px;background:#176de8;color:white;font-size:24px}
+.kv-momentum-copy>span{display:block;font-size:10px;font-weight:850;letter-spacing:.08em;color:#1168cd}
+.kv-momentum-copy h2{font-size:19px;margin:6px 0;letter-spacing:-.02em;color:#16345b}
+.kv-momentum-copy p{font-size:12px;color:#566e8c;line-height:1.6;margin:0 0 10px;max-width:660px}
+.kv-momentum-copy small{display:block;font-size:10px;color:#617893;margin-top:6px}
+.kv-momentum-progress{height:6px;border-radius:7px;overflow:hidden;background:#dfe9f8;max-width:580px}
+.kv-momentum-progress span{display:block;height:100%;border-radius:7px;background:#297bf1}
+.kv-momentum-launch>button{border:0;border-radius:10px;background:#176de8;color:#fff;padding:13px 16px;font-weight:800;font-size:12px;cursor:pointer}
+.kv-momentum-launch>button:hover{background:#0859c8}
+.kv-momentum-launch>button:disabled{background:#b1bccd;cursor:default}
+@media(max-width:960px){.kv-momentum-launch{grid-template-columns:42px 1fr}.kv-momentum-launch>button{grid-column:1/-1}}
