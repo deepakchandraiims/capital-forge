@@ -6,6 +6,7 @@ import { PRIMARY_NAV, NAV_ICONS, routeForNav } from "../navigation";
 import { profileDisplayName, profileInitials, useAuthProfile } from "../AuthProvider";
 import LiveDateTime from "../LiveDateTime";
 import styles from "./practice.module.css";
+import { cachedQuestion, loadQuestion, prefetchQuestion } from "./question-cache";
 
 type PracticeQuestion = {
   id: string;
@@ -345,16 +346,28 @@ export default function PracticePage() {
     fetch("/api/user-progress", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "bookmark", questionId: id, value }) }).catch(() => {});
   }
 
+  useEffect(() => {
+    // Download the likely next question while the current one is being read.
+    // Clicking Next then swaps directly to prepared controls instead of
+    // waiting for a network request and causing an empty-modal flash.
+    if (selected && nextQuestion && !detailLoading) prefetchQuestion(nextQuestion.id);
+  }, [selected?.id, nextQuestion?.id, detailLoading]);
+
   async function openQuestion(q: PracticeQuestion) {
-    setSelected(q); setSelectedOption(""); setChoiceLocked(false); setChoiceCorrect(null);
-    setResponse(""); setRevealed(false); setOpenedAt(Date.now()); setDetailLoading(true); setToast("");
+    const alreadyLoaded = cachedQuestion(q.id);
+    setSelected(alreadyLoaded ? { ...q, ...alreadyLoaded } : q);
+    setSelectedOption(""); setChoiceLocked(false); setChoiceCorrect(null);
+    setResponse(""); setRevealed(false); setOpenedAt(Date.now());
+    setDetailLoading(!alreadyLoaded); setToast("");
+    if (alreadyLoaded) return;
     try {
-      const res = await fetch(`/api/content?type=practice&id=${encodeURIComponent(q.id)}`);
-      const data = await res.json();
-      if (res.ok && data.ok && data.question) setSelected({ ...q, ...data.question });
-      else setToast(data.error || "Could not load full question details.");
-    } catch { setToast("Could not load full question details."); }
-    finally { setDetailLoading(false); }
+      const full = await loadQuestion(q.id);
+      setSelected((current) => current?.id === q.id ? { ...q, ...full } : current);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not load full question details.");
+    } finally {
+      setDetailLoading(false);
+    }
   }
 
   function gradeChoice(option: string) {
@@ -469,7 +482,7 @@ export default function PracticePage() {
               {error && <div className={styles.empty}><b>Content API error</b><p>{error}</p><button className={styles.primary} onClick={loadQuestions}>Retry</button></div>}
               {!error && loading && <div className={styles.empty}>Loading the fast canonical catalog…</div>}
               {!error && !loading && visible.length === 0 && <div className={styles.empty}>No questions match the current filters.</div>}
-              <div className={styles.questionList}>{visible.map((q) => <article key={q.id} className={styles.questionCard}><div><div className={styles.questionMeta}><span className={styles.tag}>{categoryOf(q)}</span><span className={`${styles.tag} ${Number(q.difficulty || 1) >= 7 ? styles.red : Number(q.difficulty || 1) >= 4 ? styles.amber : styles.green}`}>{difficultyLabel(q.difficulty)}</span>{q.calculation_required && <span className={`${styles.tag} ${styles.green}`}>Verified Calc</span>}<span>◷ {Math.max(1, Math.round(Number(q.expected_time_seconds || 60) / 60))} min</span></div><h3>{q.question}</h3><p>{q.topic_name || pretty(q.question_type)} · {q.source_record_key || "Canonical question"}</p></div><div className={styles.questionActions}><button className={styles.bookmark} onClick={() => toggleBookmark(q.id)} title="Bookmark">{bookmarks.includes(q.id) ? "♥" : "♡"}</button><button className={styles.start} onClick={() => void openQuestion(q)}>{attemptMap.has(q.id) ? "Solve Again" : "Start Practice"} &nbsp;→</button></div></article>)}</div>
+              <div className={styles.questionList}>{visible.map((q) => <article key={q.id} className={styles.questionCard}><div><div className={styles.questionMeta}><span className={styles.tag}>{categoryOf(q)}</span><span className={`${styles.tag} ${Number(q.difficulty || 1) >= 7 ? styles.red : Number(q.difficulty || 1) >= 4 ? styles.amber : styles.green}`}>{difficultyLabel(q.difficulty)}</span>{q.calculation_required && <span className={`${styles.tag} ${styles.green}`}>Verified Calc</span>}<span>◷ {Math.max(1, Math.round(Number(q.expected_time_seconds || 60) / 60))} min</span></div><h3>{q.question}</h3><p>{q.topic_name || pretty(q.question_type)} · {q.source_record_key || "Canonical question"}</p></div><div className={styles.questionActions}><button className={styles.bookmark} onClick={() => toggleBookmark(q.id)} title="Bookmark">{bookmarks.includes(q.id) ? "♥" : "♡"}</button><button className={styles.start} onMouseEnter={() => prefetchQuestion(q.id)} onFocus={() => prefetchQuestion(q.id)} onClick={() => void openQuestion(q)}>{attemptMap.has(q.id) ? "Solve Again" : "Start Practice"} &nbsp;→</button></div></article>)}</div>
               {!loading && filtered.length > 0 && <div className={styles.pagination}><button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Previous</button><small>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} · Page {page}/{totalPages}</small><button disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next →</button></div>}
             </section>
           </div>
