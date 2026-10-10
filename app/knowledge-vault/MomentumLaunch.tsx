@@ -34,16 +34,16 @@ export default function MomentumLaunch({sample}:{sample:Sample}) {
   return <section className="kv-momentum-launch">
     <div className="kv-momentum-icon">✦</div>
     <div className="kv-momentum-copy">
-      <span>NEW · FOCUS QUEST</span>
-      <h2>Make learning feel lighter.</h2>
-      <p>Start with one small challenge, a simple explanation and a quick recall check. Your 90-day program builds up gently. No penalties for skipped days.</p>
+      <span>NEW · INTERACTIVE STORY MODE</span>
+      <h2>Finance, explained like a story.</h2>
+      <p>Step inside a company, watch what changes in the numbers and uncover the idea one scene at a time. No quizzes, no right/wrong choices and no timers.</p>
       <div className="kv-momentum-progress"><span style={{width:String(Math.min(100,completed/goal*100))+"%"}}/></div>
-      <small>Active day {day} of 90 · {completed}/{goal} mini lessons today · Accounting, valuation, markets, deals and every Vault universe</small>
+      <small>Active day {day} of 90 · {completed}/{goal} short stories today · Accounting, valuation, markets, deals and every Vault universe</small>
     </div>
     <button disabled={!sample} onMouseEnter={()=>{if(sample&&profile?.id)prefetchKVObject(sample.id,profile.id);}}
       onFocus={()=>{if(sample&&profile?.id)prefetchKVObject(sample.id,profile.id);}}
       onClick={()=>{if(sample)router.push("/knowledge-vault/object/"+sample.id);}}>
-      Start a 3-minute quest →
+      Step into a story →
     </button>
   </section>;
 }
