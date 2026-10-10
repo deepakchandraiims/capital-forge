@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import KnowledgeVaultShell from "../KnowledgeVaultShell";
 import LearningObjectRenderer from "../LearningObjectRenderer";
@@ -39,6 +39,7 @@ function ObjectView({id}:{id:string}){
   const [reviewLater,setReviewLater]=useState(Boolean(cached?.progress?.review_later));
   const [fullNotes,setFullNotes]=useState(false);
   const [nextObject,setNextObject]=useState<Obj|null>(null);
+  const seenWrite=useRef<Promise<void>|null>(null);
 
   useEffect(()=>{
     if(!id || !userId)return;
@@ -52,6 +53,7 @@ function ObjectView({id}:{id:string}){
     setError("");
     setFullNotes(false);
     setNextObject(null);
+    seenWrite.current=null;
     (async()=>{
       try{
         const data=await loadKVObject(id,userId);
@@ -62,7 +64,10 @@ function ObjectView({id}:{id:string}){
         setReviewLater(Boolean(data.progress?.review_later));
         setBusy(false);
         // Do not wait for progress write before painting the lesson.
-        void fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"seen",clientKey:clientKey(),objectId:data.object.id})}).catch(()=>{});
+        // Seen progress is asynchronous for fast paint. Any later rating
+        // waits for this write only if it is still pending, preventing
+        // simultaneous inserts for a brand-new knowledge-progress row.
+        seenWrite.current=fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"seen",clientKey:clientKey(),objectId:data.object.id})}).then(()=>{}).catch(()=>{});
       }catch(err){
         if(!active)return;
         setError(err instanceof Error ? err.message : "Lesson could not load.");
@@ -79,6 +84,7 @@ function ObjectView({id}:{id:string}){
   async function toggle(action:"bookmark"|"reviewLater",value:boolean){
     if(!object)return;
     try {
+      if(seenWrite.current)await seenWrite.current;
       const response=await fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,clientKey:clientKey(),objectId:object.id,value})});
       const data=await response.json();
       if(!response.ok || !data.ok)throw new Error(data.error || "Could not update progress.");
@@ -89,6 +95,7 @@ function ObjectView({id}:{id:string}){
   async function saveRating(rating:"Again"|"Hard"|"Got It"){
     if(!object)return false;
     try {
+      if(seenWrite.current)await seenWrite.current;
       const response=await fetch("/api/knowledge-vault",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"rate",clientKey:clientKey(),objectId:object.id,rating})});
       const data=await response.json();
       if(!response.ok || !data.ok)return false;
