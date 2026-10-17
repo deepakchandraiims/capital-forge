@@ -15,5 +15,6 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run validate:content
+      - run: npm run validate:math
       - run: npm run typecheck
       - run: npm run build
