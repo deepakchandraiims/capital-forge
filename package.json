@@ -2,7 +2,9 @@
   "name": "capital-forge",
   "version": "1.0.0-world-class-ai",
   "private": true,
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,7 +14,8 @@
     "import:content": "node scripts/import-content-manifest.mjs",
     "import:knowledge-vault": "node scripts/import-knowledge-vault.mjs",
     "validate:knowledge-vault": "node scripts/import-knowledge-vault.mjs --dry-run",
-    "ci:check": "npm run validate:content && npm run typecheck && npm run build"
+    "ci:check": "npm run validate:content && npm run validate:math && npm run typecheck && npm run build",
+    "validate:math": "node --experimental-strip-types scripts/validate-mental-math.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.5",
