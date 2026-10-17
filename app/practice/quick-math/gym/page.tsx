@@ -63,6 +63,7 @@ export default function MentalMathGymPage() {
   const [phase, setPhase] = useState<"setup" | "active" | "complete">("setup");
   const [step, setStep] = useState(0);
   const [baseStep, setBaseStep] = useState(0);
+  const [sessionMistakes, setSessionMistakes] = useState<number[]>([]);
   const [answer, setAnswer] = useState("");
   const [feedback, setFeedback] = useState<AnswerFeedback | null>(null);
   const [round, setRound] = useState<RoundProgress>({ answered: 0, correct: 0, durationMs: 0 });
@@ -129,9 +130,8 @@ export default function MentalMathGymPage() {
 
   const current = useMemo(() => {
     if (phase !== "active") return null;
-    return questionForStep(mode, baseStep + step, skill, progress.mistakes);
-    // Mistake list is intentionally taken from the current progress to support immediate corrections.
-  }, [phase, mode, baseStep, step, skill, progress.mistakes]);
+    return questionForStep(mode, baseStep + step, skill, sessionMistakes);
+  }, [phase, mode, baseStep, step, skill, sessionMistakes]);
 
   useEffect(() => {
     if (phase === "active" && !feedback) inputRef.current?.focus();
@@ -148,6 +148,7 @@ export default function MentalMathGymPage() {
   function start() {
     if (!hydrated || (mode === "mistakes" && !progress.mistakes.length)) return;
     setBaseStep(progressRef.current.answered);
+    setSessionMistakes([...progressRef.current.mistakes]);
     setStep(0);
     setAnswer("");
     setFeedback(null);
